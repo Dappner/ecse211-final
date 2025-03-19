@@ -9,15 +9,22 @@ wait_ready_sensors()
 
 def turn_90():
     print("Turning!")
-    MULTIPLIER = 4
-    motor_left.set_position(MULTIPLIER * 360)
-    motor_right.set_position(-MULTIPLIER * 360)
+    motor_left.reset_encoder()
+    motor_right.reset_encoder()
+
+    motor_left.set_dps(90)
+    motor_right.set_position(-90)
+
     time.sleep(2)
+
+    reset_sensors()
     return
 
 
 def main():
     print("Attempting Turn!")
+    turn_90()
+    time.sleep(5)
     turn_90()
 
 
