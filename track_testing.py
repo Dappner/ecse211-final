@@ -12,6 +12,7 @@ def turn_90():
     MULTIPLIER = 4
     motor_left.set_position(MULTIPLIER * 360)
     motor_right.set_position(-MULTIPLIER * 360)
+    time.sleep(2)
     return
 
 
@@ -31,3 +32,4 @@ if __name__ == "__main__":
         main()
     except Exception:
         reset_sensors()
+        print("whoops!")
