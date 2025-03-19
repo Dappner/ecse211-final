@@ -1,7 +1,10 @@
 from utils.brick import wait_ready_sensors, Motor
 import time
 
-MOTOR_DPS = 90
+MOTOR_DPS_CONST = 60
+SPEED_MODIFIER = 1
+
+MOTOR_DPS = MOTOR_DPS_CONST * SPEED_MODIFIER
 
 motor_left = Motor("D")
 motor_right = Motor("A")
@@ -17,7 +20,7 @@ def turn_90():
     motor_left.set_dps(MOTOR_DPS)
     motor_right.set_dps(-MOTOR_DPS)
 
-    time.sleep(2)
+    time.sleep(2 / SPEED_MODIFIER)
 
     reset_motors()
     return
@@ -28,7 +31,7 @@ def advance_one():
     motor_left.set_dps(MOTOR_DPS)
     motor_right.set_dps(MOTOR_DPS)
 
-    time.sleep(2)
+    time.sleep(2 / SPEED_MODIFIER)
 
     reset_motors()
 
