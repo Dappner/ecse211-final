@@ -8,15 +8,15 @@ wait_ready_sensors()
 
 
 def turn_90():
+    print("Turning!")
     MULTIPLIER = 4
-    motor_left.reset_position()
-    motor_right.reset_position()
     motor_left.set_position(MULTIPLIER * 360)
     motor_right.set_position(-MULTIPLIER * 360)
     return
 
 
 def main():
+    print("Attempting Turn!")
     turn_90()
 
 
@@ -26,6 +26,7 @@ def reset_sensors():
 
 
 if __name__ == "__main__":
+    print("Start")
     try:
         main()
     except Exception:
