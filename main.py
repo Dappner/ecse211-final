@@ -32,6 +32,7 @@ COLORS = {
     "white": [200, 200, 200],   # Hallway
     "purple": [128, 0, 128],    # Burning room
     "yellow": [255, 255, 0],    # Room to avoid
+    "gren": [93, 130, 11],     # Green Card
     "black": [0, 0, 0],         # Grid lines
     "orange": [255, 165, 0]     # Entrance line
 }
