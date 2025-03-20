@@ -31,9 +31,9 @@ BURNING_ROOM_ENTRY = (3, 3)  # Entry point to burning room
 COLORS = {
     "white": [200, 200, 200],   # Hallway
     "purple": [128, 0, 128],    # Burning room
-    "yellow": [255, 255, 0],    # Room to avoid
-    "green": [93, 130, 11],     # Green Card
-    "red": [115 , 22, 8],     # Red Card
+    "yellow": [187, 167, 17],    # Room to avoid (Updated)
+    "green": [93, 130, 11],     # Green Card (updated)
+    "red": [115 , 22, 8],     # Red Card (Updated)
     "black": [0, 0, 0],         # Grid lines
     "orange": [255, 165, 0]     # Entrance line
 }
