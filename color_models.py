@@ -88,9 +88,8 @@ def color_statistics (color_name, color_data_file):
 def write_stats_for_all_colors():
     "writes statistics for all colors in COLOR_DATA using color_statistics()"
     for color in COLOR_DATA:
-        color_name = color
-        color_data_path = COLOR_DATA[color_name]
-        color_statistics(color_name, color_data_path)
+        color_data_path = COLOR_DATA[color]
+        color_statistics(color, color_data_path)
 
 
 if __name__ == "__main__":
