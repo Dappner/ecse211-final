@@ -1,14 +1,16 @@
 import numpy as np
 import json
 
+COLOR_DATA_DIR = "color_data/"
+
 # Dictionary mapping color names to their respective CSV files
 COLOR_DATA = {
-    "white": "color_data/white_data.csv",   # Hallway
-    "purple": "color_data/purple_data.csv",    # Burning room
-    "yellow": "color_data/yellow_data.csv",    # Room to avoid
-    "green": "color_data/green_data.csv",     # Green Card
-    "red": "color_data/red_data.csv",     # Red Card
-    "orange": "color_data/orange_data.csv"     # Entrance line
+    "white": COLOR_DATA_DIR+"white_data.csv",   # Hallway
+    "purple": COLOR_DATA_DIR+"purple_data.csv",    # Burning room
+    "yellow": COLOR_DATA_DIR+"yellow_data.csv",    # Room to avoid
+    "green": COLOR_DATA_DIR+"green_data.csv",     # Green Card
+    "red": COLOR_DATA_DIR+"red_data.csv",     # Red Card
+    "orange": COLOR_DATA_DIR+"crange_data.csv"     # Entrance line
 }
 
 
@@ -18,15 +20,23 @@ def multivariate_gaussian(filename):
     
     Parameters:
         filename (str): Path to the CSV file containing RGB values.
+            or
+        filename (list): list of lists of rgb values
     
     Returns:
         tuple: (mean vector, covariance matrix)
     """
-    rgb_values = np.genfromtxt(filename, delimiter=',')
+    if type(filename) == str:
+        rgb_values = np.genfromtxt(filename, delimiter=',')
+    elif type(filename) == list:
+        rgb_values = np.array(filename)
+    else:
+        raise Exception ("multivatiate_gaussian() received bad input: \nneeds to be either str (filename) or list")
+    
     rgb_values /= 255.0  # Normalize RGB values to [0,1] range
     mu = np.mean(rgb_values, axis=0)  # Compute mean vector
     sigma = np.cov(rgb_values, rowvar=False)  # Compute covariance matrix
-    
+    #print("GAUSSIAN MATRIX READ: ", rgb_values, '\n')
     return mu, sigma
 
 
@@ -87,7 +97,7 @@ def test_retreive():
     """
     Tests retrieval of a stored mean vector and covariance matrix against computed values.
     """
-    og_mu, og_sig = multivariate_gaussian("color_data/red_data.csv")
+    og_mu, og_sig = multivariate_gaussian(COLOR_DATA_DIR+"red_data.csv")
     print("OG MU: ", og_mu)
     print("OG SIGMA: ", og_sig, '\n')
 
@@ -142,6 +152,8 @@ def match_unknown_color(filename):
     
     Parameters:
         filename (str): CSV file containing RGB values of the unknown color.
+            or
+        filename (list): list of lists of rgb values
     
     Returns:
         str: The closest matching color.
@@ -160,7 +172,7 @@ def write_unknown_color(color, nb_data_points):
     """
     Writes a sample of the given color's RGB data to a new file for testing purposes.
     """
-    with open(f"color_data/{color}_data.csv", 'r') as coloF:
+    with open(COLOR_DATA_DIR+f"/{color}_data.csv", 'r') as coloF:
         with open("unknown_color.csv", 'w') as uF:
             for i, line in enumerate(coloF):
                 if i >= nb_data_points:

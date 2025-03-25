@@ -2,6 +2,7 @@ from utils.brick import Motor, EV3ColorSensor, EV3UltrasonicSensor, configure_po
 import time
 import math
 import logging
+import color_matching as colo
 
 # Configure logging
 logging.basicConfig(
@@ -17,6 +18,7 @@ WHEELBASE = 15    # cm, approximate distance between tracks (adjust as needed)
 TURN_SPEED = 300  # degrees per second for turns (used as limit)
 MOVE_SPEED = 500  # degrees per second for forward movement
 COLOR_THRESHOLD = 50  # RGB difference threshold for color detection
+NB_COLOR_SAMPLING = 20 # number of times the color sensor samples a color
 ALIGNMENT_TOLERANCE = 5  # cm tolerance for wall distance verification
 ORIENTATION_TOLERANCE = 10  # degrees tolerance for orientation checks
 TURN_CALIBRATION = 1.0  # Adjust after testing (e.g., 0.9 or 1.1)
@@ -86,13 +88,17 @@ class FirefighterRobot:
 
     def get_rgb_left(self):
         """Get RGB values from left color sensor."""
-        rgb = self.left_color.get_rgb()
+        rgb = []
+        for i in range(NB_COLOR_SAMPLING):
+            rgb.append(self.left_color.get_rgb())
         logger.debug(f"Left color sensor RGB: {rgb}")
         return rgb
 
     def get_rgb_right(self):
         """Get RGB values from right color sensor."""
-        rgb = self.right_color.get_rgb()
+        rgb = []
+        for i in range(NB_COLOR_SAMPLING):
+            rgb.append(self.right_color.get_rgb())
         logger.debug(f"Right color sensor RGB: {rgb}")
         return rgb
 
@@ -101,8 +107,9 @@ class FirefighterRobot:
         if rgb is None:
             logger.warning(f"Invalid RGB reading for {target_color} detection")
             return False
-        match = all(abs(rgb[i] - COLORS[target_color][i]) < COLOR_THRESHOLD for i in range(3))
-        logger.debug(f"Detecting {target_color} with RGB {rgb}: {'match' if match else 'no match'}")
+        match = colo.match_unknown_color(rgb)
+        #all(abs(rgb[i] - COLORS[target_color][i]) < COLOR_THRESHOLD for i in range(3))
+        logger.debug(f"Detecting {target_color}: {'match' if match else 'no match'}")
         return match
 
     def align_with_grid(self):
