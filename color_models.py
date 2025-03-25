@@ -71,11 +71,11 @@ def plot_color_graph(red, green, blue, graph_color):
     plt.show()
 
 
-def color_statistics (color_name, color_data_file):
+def color_mean_std (color_name, color_data_file):
     "writes to color_stats/ the Mean & std_deviation of RGB values for the color"
     red, green, blue = normalized_rgb_of_color(color_data_file)
 
-    f = open("color_stats/" + color_name + "_stats.csv", "w")
+    f = open("color_mean_std/" + color_name + "_mean_std.csv", "w")
 
     # f.write("{color_name} \nMean, Standard deviation \nR\nG\nB \n\n")
     f.write("{:.5f}".format(mean(red))+", "+"{:.5f}".format(stdev(red))+"\n")
@@ -85,13 +85,13 @@ def color_statistics (color_name, color_data_file):
     f.close
 
 
-def write_stats_for_all_colors():
+def write_mean_std_for_all_colors():
     "writes statistics for all colors in COLOR_DATA using color_statistics()"
     for color in COLOR_DATA:
         color_data_path = COLOR_DATA[color]
-        color_statistics(color, color_data_path)
+        color_mean_std(color, color_data_path)
 
 
 if __name__ == "__main__":
-    write_stats_for_all_colors()
+    write_mean_std_for_all_colors()
    
