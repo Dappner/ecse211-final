@@ -1,4 +1,4 @@
-from utils.brick import Motor, EV3ColorSensor, EV3UltrasonicSensor, configure_ports
+from utils.brick import Motor, EV3ColorSensor, EV3UltrasonicSensor
 import time
 import math
 import logging
@@ -7,18 +7,18 @@ import color_matching as colo
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[logging.StreamHandler()]
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
 
 # Constants
 SQUARE_SIZE = 24  # cm per grid square
-WHEELBASE = 15    # cm, approximate distance between tracks (adjust as needed)
+WHEELBASE = 15  # cm, approximate distance between tracks (adjust as needed)
 TURN_SPEED = 300  # degrees per second for turns (used as limit)
 MOVE_SPEED = 500  # degrees per second for forward movement
 COLOR_THRESHOLD = 50  # RGB difference threshold for color detection
-NB_COLOR_SAMPLING = 20 # number of times the color sensor samples a color
+NB_COLOR_SAMPLING = 20  # number of times the color sensor samples a color
 ALIGNMENT_TOLERANCE = 5  # cm tolerance for wall distance verification
 ORIENTATION_TOLERANCE = 10  # degrees tolerance for orientation checks
 TURN_CALIBRATION = 1.0  # Adjust after testing (e.g., 0.9 or 1.1)
@@ -28,31 +28,38 @@ HALLWAY_PATH = [(0, 0), (1, 0), (0, 1), (1, 1), (0, 2), (1, 2), (2, 2), (3, 2), 
 ENTRANCE = (3, 2)  # Position before entering the room
 BURNING_ROOM_ENTRY = (3, 3)  # Entry point to burning room
 
-# RGB color definitions 
-#TODO: Adjust these values based on actual sensor readings
+# RGB color definitions
+# TODO: Adjust these values based on actual sensor readings
 COLORS = {
-    "white": [200, 200, 200],   # Hallway
-    "purple": [128, 0, 128],    # Burning room
-    "yellow": [187, 167, 17],    # Room to avoid (Updated)
-    "green": [93, 130, 11],     # Green Card (updated)
-    "red": [115 , 22, 8],     # Red Card (Updated)
-    "black": [0, 0, 0],         # Grid lines
-    "orange": [255, 165, 0]     # Entrance line
+    "white": [200, 200, 200],  # Hallway
+    "purple": [128, 0, 128],  # Burning room
+    "yellow": [187, 167, 17],  # Room to avoid (Updated)
+    "green": [93, 130, 11],  # Green Card (updated)
+    "red": [115, 22, 8],  # Red Card (Updated)
+    "black": [0, 0, 0],  # Grid lines
+    "orange": [255, 165, 0],  # Entrance line
 }
+
 
 class FirefighterRobot:
     def __init__(self):
-        self.left_motor, self.right_motor, self.left_color, self.right_color, self.ultrasonic = configure_ports(
-            PORT_A=Motor, PORT_B=Motor, PORT_1=EV3ColorSensor, PORT_2=EV3ColorSensor, PORT_3=EV3UltrasonicSensor
-        )
+        self.left_motor = Motor("A")
+        self.right_motor = Motor("B")
+        self.left_color = EV3ColorSensor(1)
+        self.right_color = EV3ColorSensor(2)
+        self.ultrasonic = EV3UltrasonicSensor(3)
+
         self.left_motor.set_limits(dps=MOVE_SPEED)
         self.right_motor.set_limits(dps=MOVE_SPEED)
         self.position = [0, 0]  # [x, y]
-        self.orientation = 0    # Degrees: 0 (east), 90 (north), 180 (west), 270 (south)
+        self.orientation = 0  # Degrees: 0 (east), 90 (north), 180 (west), 270 (south)
         self.left_color.wait_ready()
         self.right_color.wait_ready()
         self.ultrasonic.wait_ready()
-        logger.info(f"Robot initialized at position {self.position}, orientation {self.orientation}")
+
+        logger.info(
+            f"Robot initialized at position {self.position}, orientation {self.orientation}"
+        )
 
     def move_forward(self, distance_cm):
         """Move forward a given distance in cm."""
@@ -78,7 +85,9 @@ class FirefighterRobot:
         self.right_motor.wait_is_stopped()
         old_orientation = self.orientation
         self.orientation = (self.orientation + angle_deg) % 360
-        logger.info(f"Turn completed: orientation updated from {old_orientation} to {self.orientation}")
+        logger.info(
+            f"Turn completed: orientation updated from {old_orientation} to {self.orientation}"
+        )
 
     def stop(self):
         """Stop all movement."""
@@ -108,7 +117,7 @@ class FirefighterRobot:
             logger.warning(f"Invalid RGB reading for {target_color} detection")
             return False
         match = colo.match_unknown_color(rgb)
-        #all(abs(rgb[i] - COLORS[target_color][i]) < COLOR_THRESHOLD for i in range(3))
+        # all(abs(rgb[i] - COLORS[target_color][i]) < COLOR_THRESHOLD for i in range(3))
         logger.debug(f"Detecting {target_color}: {'match' if match else 'no match'}")
         return match
 
@@ -138,6 +147,7 @@ class FirefighterRobot:
                 self.left_motor.set_dps(MOVE_SPEED)
                 self.right_motor.set_dps(MOVE_SPEED)
             time.sleep(0.05)
+            self.stop()
         self.stop()
 
     def update_position(self, dx, dy):
@@ -169,32 +179,42 @@ class FirefighterRobot:
         elif abs(self.orientation - 270) < ORIENTATION_TOLERANCE:  # South
             expected = self.position[1] * SQUARE_SIZE
         else:
-            logger.warning(f"Orientation {self.orientation} not within tolerance of cardinal directions")
+            logger.warning(
+                f"Orientation {self.orientation} not within tolerance of cardinal directions"
+            )
             return False
         match = abs(dist - expected) < ALIGNMENT_TOLERANCE
-        logger.info(f"Position verification: measured {dist} cm, expected {expected} cm, {'valid' if match else 'invalid'}")
+        logger.info(
+            f"Position verification: measured {dist} cm, expected {expected} cm, {'valid' if match else 'invalid'}"
+        )
         return match
 
     def navigate_to(self, target_x, target_y):
         """Navigate to a target position with grid alignment."""
         dx = target_x - self.position[0]
         dy = target_y - self.position[1]
-        logger.info(f"Navigating to ({target_x}, {target_y}) from {self.position}, dx={dx}, dy={dy}")
+        logger.info(
+            f"Navigating to ({target_x}, {target_y}) from {self.position}, dx={dx}, dy={dy}"
+        )
 
         target_orientation = None
         if dx > 0:
-            target_orientation = 0    # East
+            target_orientation = 0  # East
         elif dx < 0:
             target_orientation = 180  # West
         elif dy > 0:
-            target_orientation = 90   # North
+            target_orientation = 90  # North
         elif dy < 0:
             target_orientation = 270  # South
 
         if target_orientation is not None:
-            delta_angle = (target_orientation - self.orientation + 180) % 360 - 180  # Shortest turn angle
+            delta_angle = (
+                target_orientation - self.orientation + 180
+            ) % 360 - 180  # Shortest turn angle
             if abs(delta_angle) > ORIENTATION_TOLERANCE:
-                logger.info(f"Adjusting orientation from {self.orientation} to {target_orientation}")
+                logger.info(
+                    f"Adjusting orientation from {self.orientation} to {target_orientation}"
+                )
                 self.turn(delta_angle)
 
         steps = abs(dx) + abs(dy)
@@ -227,6 +247,7 @@ class FirefighterRobot:
             return "hallway"
         return "unknown"
 
+
 def main():
     robot = FirefighterRobot()
     logger.info(f"Starting navigation at {robot.position}")
@@ -235,13 +256,18 @@ def main():
         logger.info(f"Target position: ({x}, {y})")
         robot.navigate_to(x, y)
         if not robot.verify_position():
-            logger.warning("Position verification failed, attempting to proceed after realignment")
+            logger.warning(
+                "Position verification failed, attempting to proceed after realignment"
+            )
             robot.align_with_grid()
 
-    # Once 
+    # Move forward backward to actually get Orange
+    # Once
     left_rgb = robot.get_rgb_left()
     right_rgb = robot.get_rgb_right()
-    if robot.detect_color(left_rgb, "orange") and robot.detect_color(right_rgb, "orange"):
+    if robot.detect_color(left_rgb, "orange") and robot.detect_color(
+        right_rgb, "orange"
+    ):
         logger.info("Detected orange entrance at (3,2), entering burning room")
         robot.move_forward(SQUARE_SIZE / 2)
         robot.update_position(0, 1)
@@ -263,5 +289,7 @@ def main():
 
     robot.stop()
 
+
 if __name__ == "__main__":
     main()
+
