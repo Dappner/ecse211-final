@@ -17,7 +17,6 @@ SQUARE_SIZE = 24  # cm per grid square
 WHEELBASE = 15  # cm, approximate distance between tracks (adjust as needed)
 TURN_SPEED = 300  # degrees per second for turns (used as limit)
 MOVE_SPEED = 500  # degrees per second for forward movement
-COLOR_THRESHOLD = 50  # RGB difference threshold for color detection
 NB_COLOR_SAMPLING = 20  # number of times the color sensor samples a color
 ALIGNMENT_TOLERANCE = 5  # cm tolerance for wall distance verification
 ORIENTATION_TOLERANCE = 10  # degrees tolerance for orientation checks
@@ -28,18 +27,6 @@ HALLWAY_PATH = [(0, 0), (1, 0), (0, 1), (1, 1), (0, 2), (1, 2), (2, 2), (3, 2), 
 ENTRANCE = (3, 2)  # Position before entering the room
 BURNING_ROOM_ENTRY = (3, 3)  # Entry point to burning room
 
-# RGB color definitions
-# TODO: Adjust these values based on actual sensor readings
-COLORS = {
-    "white": [200, 200, 200],  # Hallway
-    "purple": [128, 0, 128],  # Burning room
-    "yellow": [187, 167, 17],  # Room to avoid (Updated)
-    "green": [93, 130, 11],  # Green Card (updated)
-    "red": [115, 22, 8],  # Red Card (Updated)
-    "black": [0, 0, 0],  # Grid lines
-    "orange": [255, 165, 0],  # Entrance line
-}
-
 
 class FirefighterRobot:
     def __init__(self):
@@ -48,11 +35,15 @@ class FirefighterRobot:
         self.left_color = EV3ColorSensor(1)
         self.right_color = EV3ColorSensor(2)
         self.ultrasonic = EV3UltrasonicSensor(3)
+        self.dropper_motor = Motor("C")
 
+        # Initializing Limits and Constants
         self.left_motor.set_limits(dps=MOVE_SPEED)
         self.right_motor.set_limits(dps=MOVE_SPEED)
         self.position = [0, 0]  # [x, y]
-        self.orientation = 0  # Degrees: 0 (east), 90 (north), 180 (west), 270 (south)
+        self.orientation = 0
+
+        # Waiting Ready
         self.left_color.wait_ready()
         self.right_color.wait_ready()
         self.ultrasonic.wait_ready()
@@ -95,40 +86,41 @@ class FirefighterRobot:
         self.right_motor.set_power(0)
         logger.info("Motors stopped")
 
-    def get_rgb_left(self):
+    def get_color_left(self):
         """Get RGB values from left color sensor."""
         rgb = []
         for i in range(NB_COLOR_SAMPLING):
             rgb.append(self.left_color.get_rgb())
-        logger.debug(f"Left color sensor RGB: {rgb}")
-        return rgb
 
-    def get_rgb_right(self):
+        match = colo.match_unknown_color(rgb)
+        logger.info("LEFT COLOR: ", match)
+        return match
+
+    def get_color_right(self):
         """Get RGB values from right color sensor."""
         rgb = []
         for i in range(NB_COLOR_SAMPLING):
             rgb.append(self.right_color.get_rgb())
-        logger.debug(f"Right color sensor RGB: {rgb}")
-        return rgb
 
-    def detect_color(self, rgb, target_color):
-        """Check if the given RGB matches the target color within threshold."""
-        if rgb is None:
-            logger.warning(f"Invalid RGB reading for {target_color} detection")
-            return False
         match = colo.match_unknown_color(rgb)
-        # all(abs(rgb[i] - COLORS[target_color][i]) < COLOR_THRESHOLD for i in range(3))
-        logger.debug(f"Detecting {target_color}: {'match' if match else 'no match'}")
+        logger.info("RIGHT COLOR: ", match)
         return match
+
+    def check_color_match(self):
+        """Returns Tuple (bool Match, left color, right color)"""
+        left_color = self.get_color_left()
+        right_color = self.get_color_right()
+        return left_color == right_color, left_color, right_color
 
     def align_with_grid(self):
         """Align robot with black grid lines using both color sensors."""
         logger.info("Aligning with grid...")
         while True:
-            left_rgb = self.get_rgb_left()
-            right_rgb = self.get_rgb_right()
-            left_black = self.detect_color(left_rgb, "black")
-            right_black = self.detect_color(right_rgb, "black")
+            left_rgb = self.get_color_left()
+            right_rgb = self.get_color_right()
+
+            left_black = left_rgb == "black"
+            right_black = right_rgb == "black"
 
             if left_black and right_black:
                 logger.info("Aligned with black grid line")
@@ -147,6 +139,7 @@ class FirefighterRobot:
                 self.left_motor.set_dps(MOVE_SPEED)
                 self.right_motor.set_dps(MOVE_SPEED)
             time.sleep(0.05)
+
             self.stop()
         self.stop()
 
@@ -230,21 +223,19 @@ class FirefighterRobot:
                 dy -= dy // abs(dy) if dy != 0 else 0
 
     def identify_room(self):
-        """Identify the current room based on floor color (average of both sensors)."""
-        left_rgb = self.get_rgb_left()
-        right_rgb = self.get_rgb_right()
-        if left_rgb is None or right_rgb is None:
-            logger.warning("One or both color sensors failed to return RGB values")
-            return "unknown"
-        avg_rgb = [(l + r) / 2 for l, r in zip(left_rgb, right_rgb)]
-        logger.debug(f"Average RGB for room identification: {avg_rgb}")
+        "Identify the Current Room"
+        # TODO: improve this mechanic (maybe we need to realign if one is on black)
 
-        if self.detect_color(avg_rgb, "purple"):
+        left_color = self.get_color_left()
+        right_color = self.get_color_left()
+
+        if left_color == "purple":
             return "burning room"
-        elif self.detect_color(avg_rgb, "yellow"):
+        elif left_color == "yellow":
             return "avoid room"
-        elif self.detect_color(avg_rgb, "white"):
+        elif left_color == "white":
             return "hallway"
+
         return "unknown"
 
 
@@ -290,6 +281,19 @@ def main():
     robot.stop()
 
 
+def calibration_testing():
+    robot = FirefighterRobot()
+
+    robot.move_forward(24)
+    pass
+
+
+def dropper_testing():
+    robot = FirefighterRobot()
+    pass
+
+
 if __name__ == "__main__":
-    main()
+    # main()
+    calibration_testing()
 
