@@ -254,30 +254,30 @@ def main():
 
     # Move forward backward to actually get Orange
     # Once
-    left_rgb = robot.get_rgb_left()
-    right_rgb = robot.get_rgb_right()
-    if robot.detect_color(left_rgb, "orange") and robot.detect_color(
-        right_rgb, "orange"
-    ):
-        logger.info("Detected orange entrance at (3,2), entering burning room")
-        robot.move_forward(SQUARE_SIZE / 2)
-        robot.update_position(0, 1)
-    else:
-        logger.error("Entrance not found at (3,2), stopping")
-        robot.stop()
-        return
-
-    room = robot.identify_room()
-    logger.info(f"Identified room: {room}")
-    if room == "avoid room":
-        logger.error("Wrong room detected (yellow), stopping")
-        robot.stop()
-    elif room == "burning room":
-        logger.info("Successfully entered the burning room at (3,3)")
-    else:
-        logger.error("Unknown room, stopping for safety")
-        robot.stop()
-
+    # left_rgb = robot.get_rgb_left()
+    # right_rgb = robot.get_rgb_right()
+    # if robot.detect_color(left_rgb, "orange") and robot.detect_color(
+    #     right_rgb, "orange"
+    # ):
+    #     logger.info("Detected orange entrance at (3,2), entering burning room")
+    #     robot.move_forward(SQUARE_SIZE / 2)
+    #     robot.update_position(0, 1)
+    # else:
+    #     logger.error("Entrance not found at (3,2), stopping")
+    #     robot.stop()
+    #     return
+    #
+    # room = robot.identify_room()
+    # logger.info(f"Identified room: {room}")
+    # if room == "avoid room":
+    #     logger.error("Wrong room detected (yellow), stopping")
+    #     robot.stop()
+    # elif room == "burning room":
+    #     logger.info("Successfully entered the burning room at (3,3)")
+    # else:
+    #     logger.error("Unknown room, stopping for safety")
+    #     robot.stop()
+    #
     robot.stop()
 
 
