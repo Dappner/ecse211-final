@@ -806,14 +806,14 @@ class MissionControl:
             self.extinguisher.drop_cube()
             self.drive.move_backward_slightly(FORWARD_MOVE)
             self.drive.turn_slightly_left(ROTATION_SECONDS - INCREMENT)
-            #self.drive.move_forward_slightly(FORWARD_MOVE)
+            self.drive.move_forward_slightly(FORWARD_MOVE - 0.1)
         else:
             self.drive.turn_slightly_left(ROTATION_SECONDS)
             self.drive.move_forward_slightly(FORWARD_MOVE + 0.1)
             self.extinguisher.drop_cube()
             self.drive.move_backward_slightly(FORWARD_MOVE)
             self.drive.turn_slightly_right(ROTATION_SECONDS - INCREMENT)
-            #self.drive.move_forward_slightly(FORWARD_MOVE)
+            self.drive.move_forward_slightly(FORWARD_MOVE - 0.1)
 
     def run_mission(self):
         """Execute the full firefighting mission."""
