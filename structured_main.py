@@ -788,7 +788,7 @@ class MissionControl:
         self.siren.stop()
 
     def drop_on_sensor(self, sensor: str):
-        ROTATION_SECONDS = 0.8
+        ROTATION_SECONDS = 0.9
         if sensor == "RIGHT":
             self.drive.turn_slightly_right(ROTATION_SECONDS)
             self.extinguisher.drop_cube()
