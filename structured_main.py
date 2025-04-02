@@ -102,12 +102,12 @@ class SirenController:
         """Create the siren sound using the Sound module"""
         # Create high pitch siren sound
         self.siren_high = Sound(
-            duration=0.4, volume=70, pitch="A5", cutoff=0.05, fs=8000
+            duration=0.4, volume=85, pitch="A5", cutoff=0.05, fs=8000
         )
 
         # Create low pitch siren sound
         self.siren_low = Sound(
-            duration=0.4, volume=70, pitch="E5", cutoff=0.05, fs=8000
+            duration=0.4, volume=85, pitch="E5", cutoff=0.05, fs=8000
         )
 
         # Create silence gap
@@ -906,8 +906,7 @@ class FirefighterRobot:
             # Test siren
             logger.info("Testing siren")
             self.siren.start()
-            time.sleep(3)
-            self.siren.stop()
+
 
             # Test sensors (before moving so we can put something down)
             logger.info("Testing sensors")
@@ -926,10 +925,9 @@ class FirefighterRobot:
                 distance = self.sensor_system.get_wall_distance()
                 logger.info(f"Distance to wall: {distance} cm")
 
-            # Test dropper
-            logger.info("Testing fire extinguisher")
-            self.extinguisher.drop_cube()
+            time.sleep(3)
 
+            self.siren.stop()
             logger.info("Calibration tests complete")
 
         except Exception as e:
