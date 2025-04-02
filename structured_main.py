@@ -293,7 +293,7 @@ class SensorSystem:
     def __init__(self, left_color, right_color, ultrasonic, touch_sensor):
         self.left_color = left_color
         self.right_color = right_color
-        self.ultrasonic = ultrasonic
+        # self.ultrasonic = ultrasonic
         self.touch_sensor = touch_sensor
 
         # Initialize sensors
