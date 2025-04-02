@@ -792,11 +792,11 @@ class MissionControl:
         if sensor == "RIGHT":
             self.drive.turn_slightly_right(ROTATION_SECONDS)
             self.extinguisher.drop_cube()
-            self.drive.turn_slightly_left(ROTATION_SECONDS)
+            self.drive.turn_slightly_left(ROTATION_SECONDS - 0.1)
         else:
             self.drive.turn_slightly_left(ROTATION_SECONDS)
             self.extinguisher.drop_cube()
-            self.drive.turn_slightly_right(ROTATION_SECONDS)
+            self.drive.turn_slightly_right(ROTATION_SECONDS - 0.1)
 
     def run_mission(self):
         """Execute the full firefighting mission."""
