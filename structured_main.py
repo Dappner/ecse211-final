@@ -790,18 +790,18 @@ class MissionControl:
     def drop_on_sensor(self, sensor: str):
         ROTATION_SECONDS = 0.9
         INCREMENT = 0.1
-        FORWARD_MOVE = 0.3
+        FORWARD_MOVE = 0.4
         if sensor == "RIGHT":
             self.drive.turn_slightly_right(ROTATION_SECONDS)
             self.drive.move_forward_slightly(FORWARD_MOVE + 0.1)
             self.extinguisher.drop_cube()
-            self.drive.turn_slightly_left(ROTATION_SECONDS - INCREMENT)
+            self.drive.turn_slightly_left(ROTATION_SECONDS)
             #self.drive.move_forward_slightly(FORWARD_MOVE)
         else:
             self.drive.turn_slightly_left(ROTATION_SECONDS)
             self.drive.move_forward_slightly(FORWARD_MOVE + 0.1)
             self.extinguisher.drop_cube()
-            self.drive.turn_slightly_right(ROTATION_SECONDS - INCREMENT)
+            self.drive.turn_slightly_right(ROTATION_SECONDS)
             #self.drive.move_forward_slightly(FORWARD_MOVE)
 
     def run_mission(self):
