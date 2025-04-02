@@ -129,13 +129,14 @@ class FirefighterRobot:
         current_index = directions.index(self.orientation)
         new_index = (current_index + times) % 4
         self.orientation = directions[new_index]
-        logger.info(f"New orientation: {self.orientation}")
 
     def turn(self, target_direction):
         """Turn to face a target direction (NORTH, SOUTH, EAST, WEST)."""
         if self.orientation == target_direction:
             logger.info(f"Already facing {target_direction}, no turn needed")
             return
+
+        old_orientation = self.orientation
 
         directions = [NORTH, EAST, SOUTH, WEST]
         current_index = directions.index(self.orientation)
@@ -150,8 +151,7 @@ class FirefighterRobot:
         elif diff == 3:  # Turn left once
             self.turn_90_left()
 
-        logger.info(f"Turned from {self.orientation} to {target_direction}")
-        self.orientation = target_direction
+        logger.info(f"Turned from {old_orientation} to {self.orientation}")
 
     # def turn(self, angle_deg):
     #     """Turn in place by angle_deg (positive = right, negative = left)."""
@@ -332,6 +332,7 @@ def main():
         #     if not robot.verify_position():
         #         logger.warning("Position verification failed, trying to continue")
 
+    robot.turn(NORTH)
     # Check if we've reached the entrance
     is_at_entrance = (
         robot.position[0] == ENTRANCE[0] and robot.position[1] == ENTRANCE[1]
