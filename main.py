@@ -48,8 +48,8 @@ DIRECTION_VECTORS = {NORTH: (0, 1), EAST: (1, 0), SOUTH: (0, -1), WEST: (-1, 0)}
 
 class FirefighterRobot:
     def __init__(self):
-        self.left_motor = Motor("A")
-        self.right_motor = Motor("B")
+        self.left_motor = Motor("B")
+        self.right_motor = Motor("D")
         self.left_color = EV3ColorSensor(1)
         self.right_color = EV3ColorSensor(2)
         self.ultrasonic = EV3UltrasonicSensor(3)
@@ -282,21 +282,21 @@ class FirefighterRobot:
         if dx > 0:
             self.turn(EAST)
             self.advance_blocks(dx)
-            self.align_with_grid()
+            # self.align_with_grid()
         elif dx < 0:
             self.turn(WEST)
             self.advance_blocks(-dx)
-            self.align_with_grid()
+            # self.align_with_grid()
 
         # Then move in Y direction
         if dy > 0:
             self.turn(NORTH)
             self.advance_blocks(dy)
-            self.align_with_grid()
+            # self.align_with_grid()
         elif dy < 0:
             self.turn(SOUTH)
             self.advance_blocks(-dy)
-            self.align_with_grid()
+            # self.align_with_grid()
 
         logger.info(f"Navigation complete, at position {self.position}")
 
