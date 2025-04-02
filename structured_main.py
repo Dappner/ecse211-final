@@ -788,14 +788,15 @@ class MissionControl:
         self.siren.stop()
 
     def drop_on_sensor(self, sensor: str):
+        ROTATION_SECONDS = 0.8
         if sensor == "RIGHT":
-            self.drive.turn_slightly_right(0.1)
+            self.drive.turn_slightly_right(ROTATION_SECONDS)
             self.extinguisher.drop_cube()
-            self.drive.turn_slightly_left(0.1)
+            self.drive.turn_slightly_left(ROTATION_SECONDS)
         else:
-            self.drive.turn_slightly_left(0.1)
+            self.drive.turn_slightly_left(ROTATION_SECONDS)
             self.extinguisher.drop_cube()
-            self.drive.turn_slightly_right(0.1)
+            self.drive.turn_slightly_right(ROTATION_SECONDS)
 
     def run_mission(self):
         """Execute the full firefighting mission."""
