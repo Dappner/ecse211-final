@@ -31,8 +31,9 @@ MOTOR_DPS = MOTOR_DPS_CONST * SPEED_MODIFIER
 MOTOR_POWER = 30.5
 
 
-# Hallway path (excluding room entry)
-HALLWAY_PATH = [(0, 0), (1, 0), (0, 1), (1, 1), (0, 2), (1, 2), (2, 2), (3, 2), (4, 2)]
+# Hallway path (excluding room entry) (x,y)
+HALLWAY_PATH = [(0, 0), (0, 2), (3, 2)]
+# (x,y)
 ENTRANCE = (3, 2)  # Position before entering the room
 BURNING_ROOM_ENTRY = (3, 3)  # Entry point to burning room
 
