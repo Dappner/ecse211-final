@@ -208,6 +208,15 @@ class DriveSystem:
         time.sleep(time_seconds)
         self.reset_motors()
 
+    def move_backward_slightly(self, time_seconds=0.5):
+        """Move backward slightly for small adjustments."""
+        # TODO: We need to ensure that this doesn't throw everything off
+        logger.debug(f"Moving forward slightly for {time_seconds} seconds")
+        self.left_motor.set_power(-MOTOR_POWER / 2)
+        self.right_motor.set_power(-MOTOR_POWER / 2)
+        time.sleep(time_seconds)
+        self.reset_motors()
+
     def turn_90_left(self, times=1):
         """Turn left 90 degrees (or multiple of 90) based on tested timing values."""
         logger.info(f"Turning left {90 * times} degrees")
@@ -795,12 +804,14 @@ class MissionControl:
             self.drive.turn_slightly_right(ROTATION_SECONDS)
             self.drive.move_forward_slightly(FORWARD_MOVE + 0.1)
             self.extinguisher.drop_cube()
+            self.drive.move_backward_slightly(FORWARD_MOVE)
             self.drive.turn_slightly_left(ROTATION_SECONDS - INCREMENT)
             #self.drive.move_forward_slightly(FORWARD_MOVE)
         else:
             self.drive.turn_slightly_left(ROTATION_SECONDS)
             self.drive.move_forward_slightly(FORWARD_MOVE + 0.1)
             self.extinguisher.drop_cube()
+            self.drive.move_backward_slightly(FORWARD_MOVE)
             self.drive.turn_slightly_right(ROTATION_SECONDS - INCREMENT)
             #self.drive.move_forward_slightly(FORWARD_MOVE)
 
