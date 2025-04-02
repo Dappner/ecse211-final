@@ -789,14 +789,17 @@ class MissionControl:
 
     def drop_on_sensor(self, sensor: str):
         ROTATION_SECONDS = 0.9
+        INCREMENT = 0.1
         if sensor == "RIGHT":
             self.drive.turn_slightly_right(ROTATION_SECONDS)
             self.extinguisher.drop_cube()
-            self.drive.turn_slightly_left(ROTATION_SECONDS - 0.1)
+            self.drive.turn_slightly_left(ROTATION_SECONDS - INCREMENT)
+            self.drive.move_forward_slightly(INCREMENT)
         else:
             self.drive.turn_slightly_left(ROTATION_SECONDS)
             self.extinguisher.drop_cube()
-            self.drive.turn_slightly_right(ROTATION_SECONDS - 0.1)
+            self.drive.turn_slightly_right(ROTATION_SECONDS - INCREMENT)
+            self.drive.move_forward_slightly(INCREMENT)
 
     def run_mission(self):
         """Execute the full firefighting mission."""
