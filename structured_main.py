@@ -787,6 +787,16 @@ class MissionControl:
         self.drive.stop()
         self.siren.stop()
 
+    def drop_on_sensor(self, sensor: str):
+        if sensor == "RIGHT":
+            self.drive.turn_slightly_right(0.1)
+            self.extinguisher.drop_cube()
+            self.drive.turn_slightly_left(0.1)
+        else:
+            self.drive.turn_slightly_left(0.1)
+            self.extinguisher.drop_cube()
+            self.drive.turn_slightly_right(0.1)
+
     def run_mission(self):
         """Execute the full firefighting mission."""
         # Initialize mission
@@ -887,14 +897,12 @@ class FirefighterRobot:
             right_color = self.sensor_system.get_color_right()
             logger.info(f"Color readings - Left: {left_color}, Right: {right_color}")
 
-            # Test movement
-            # TODO: Reimplement movement test
-            # logger.info("Testing basic movement")
-            # self.drive_system.advance_blocks(1)
-            # time.sleep(1)
-            # self.drive_system.turn_90_left()
-            # time.sleep(1)
-            # self.drive_system.turn_90_right()
+            if left_color == COLOR_RED:
+                self.mission_control.drop_on_sensor("LEFT")
+            elif right_color == COLOR_RED:
+                self.mission_control.drop_on_sensor("RIGHT")
+
+            time.sleep(1)
 
             if self.sensor_system.ultrasonic:
                 distance = self.sensor_system.get_wall_distance()

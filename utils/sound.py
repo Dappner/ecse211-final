@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
 """
-Module for creating and generating sine wave based sound. 
+#!/usr/bin/env python3
+Module for creating and generating sine wave based sound.
 Includes Frequency modulation and Amplitude modulation.
 
 Authors: Ryan Au and Younes Boubekaur
@@ -22,7 +22,7 @@ def change_volume(percentage):
     vol = abs(int(percentage))
     vol = min(100, max(0, vol))
     try:
-        command = f'sudo amixer cset numid=1 {vol}%'
+        command = f"sudo amixer cset numid=1 {vol}%"
         os.system(command)
     except OSError:
         return
@@ -46,14 +46,14 @@ def _amp_to_db(p0: float, p1: float) -> float:
     """Converts the relative amplitude to decibels.
     p0 is the reference amplitude, p1 is the next value
     """
-    return 20 * math.log10(p1/p0)
+    return 20 * math.log10(p1 / p0)
 
 
 def db_to_amp(db: float, ref_amp: float) -> float:
     """Converts decibels to a next amplitude.
     ref_amp is the reference amplitude to start at.
     """
-    return 10**(db/20) * ref_amp
+    return 10 ** (db / 20) * ref_amp
 
 
 HIGHEST_VOLUME = 100  # Custom value. Could be 100, 1.0, 50, doesn't matter.
@@ -74,8 +74,11 @@ def vol_to_amp(vol: float) -> float:
     Note 2: this volume is dependent on the system volume.
         Loudness = program volume * system volume (if in percentage)
     """
-    db = clip(vol, 0, HIGHEST_VOLUME, nomax=LIMIT_MAX_VOLUME) * \
-        _HIGHEST_DECIBEL / HIGHEST_VOLUME
+    db = (
+        clip(vol, 0, HIGHEST_VOLUME, nomax=LIMIT_MAX_VOLUME)
+        * _HIGHEST_DECIBEL
+        / HIGHEST_VOLUME
+    )
     amp = db_to_amp(db, _LOWEST_AMPLITUDE)
     return clip(amp, 0, _HIGHEST_AMPLITUDE, nomax=LIMIT_MAX_VOLUME)
 
@@ -89,7 +92,18 @@ def _parse_freq(value: Union[str, float]):
     return 0
 
 
-def gen_wave(duration=1, volume=40, pitch: Union[str, float] = "A4", mod_f: Union[str, float] = 0, mod_k=0, amp_f: Union[str, float] = 0, amp_ka=0, amp_ac=1, cutoff=0.01, fs=8000):
+def gen_wave(
+    duration=1,
+    volume=40,
+    pitch: Union[str, float] = "A4",
+    mod_f: Union[str, float] = 0,
+    mod_k=0,
+    amp_f: Union[str, float] = 0,
+    amp_ka=0,
+    amp_ac=1,
+    cutoff=0.01,
+    fs=8000,
+):
     # Process frequencies, factors
     pitch = _parse_freq(pitch)
     mod_f = _parse_freq(mod_f)
@@ -98,17 +112,19 @@ def gen_wave(duration=1, volume=40, pitch: Union[str, float] = "A4", mod_f: Unio
     # Convert volume using decibel underneath
     volume = vol_to_amp(volume)
 
-    return _gen_wave(duration, volume, pitch, mod_f, mod_k, amp_f, amp_ka, amp_ac, cutoff, fs)
+    return _gen_wave(
+        duration, volume, pitch, mod_f, mod_k, amp_f, amp_ka, amp_ac, cutoff, fs
+    )
 
 
 def _gen_wave(duration, volume, pitch, mod_f, mod_k, amp_f, amp_ka, amp_ac, cutoff, fs):
     n = int(duration * fs)
     t = [0 for i in range(n)]  # comprehension faster than append
-    maximum = -2**31
+    maximum = -(2**31)
     for i in range(0, n):
         x = i / fs
         # create carrier wave (float division is faster)
-        c = (2 * math.pi * x * pitch)
+        c = 2 * math.pi * x * pitch
         # frequncy modulate
         m = mod_k * sin(2 * math.pi * mod_f * x)
         y = cos(c + m)
@@ -121,9 +137,9 @@ def _gen_wave(duration, volume, pitch, mod_f, mod_k, amp_f, amp_ka, amp_ac, cuto
         t[i] = y
 
     # do volume and cutoff calculation
-    max16 = (2**15 - 1)
-    cutoff = min(int(n/2), int(fs * cutoff))
-    k = (1/3) * (1/math.log(2))
+    max16 = 2**15 - 1
+    cutoff = min(int(n / 2), int(fs * cutoff))
+    k = (1 / 3) * (1 / math.log(2))
     for i in range(len(t)):
         # apply volume
         y = t[i] * volume
@@ -138,11 +154,23 @@ def _gen_wave(duration, volume, pitch, mod_f, mod_k, amp_f, amp_ka, amp_ac, cuto
         # pull down value to int16
         t[i] = clip(int(y * max16 / maximum), -32768, 32767, nomax=False)
 
-    return array.array('h', t)
+    return array.array("h", t)
 
 
 class Sound:
-    def __init__(self, duration=1, volume=40, pitch="A4", mod_f=0, mod_k=0, amp_f=0, amp_ka=0, amp_ac=1, cutoff=0.01, fs=8000):
+    def __init__(
+        self,
+        duration=1,
+        volume=40,
+        pitch="A4",
+        mod_f=0,
+        mod_k=0,
+        amp_f=0,
+        amp_ka=0,
+        amp_ac=1,
+        cutoff=0.01,
+        fs=8000,
+    ):
         self.player = None
         self._fs = fs  # needs a default value
         self.set_volume(volume)
@@ -192,10 +220,11 @@ class Sound:
             dst = list(other.audio)
             spacer = [0 for i in range(spacing_n)]
 
-            self.audio = array.array('h', src + spacer + dst)
+            self.audio = array.array("h", src + spacer + dst)
         else:
             raise RuntimeError(
-                "Cannot alter this sound object for repetition while playing this sound.")
+                "Cannot alter this sound object for repetition while playing this sound."
+            )
         return self
 
     def repeat_sound(self, repeat_times=1, repeat_interval=0):
@@ -208,13 +237,12 @@ class Sound:
         You may utilize the concept of BPM or "beats per minute" to help you with creating a tempo for your songs.
             If you want a sound repeated at 120bpm, that would be 2 times/sec, 0.5 seconds per sound played.
             If the original sound has duration 0.1 seconds, then the silence spacing would have to be 0.4 seconds, such that
-            every sound starts playing every 0.5 seconds, matching 120bpm. The end of this repeated Sound object will be a 
-            sound playing for 0.1 seconds, and then no silence spacing afterwards. This is desired behavior. You can then perform 
-            a time.sleep(0.4) seconds before replaying this Sound object. BUT there is sometimes latency in "starting" a sound, 
+            every sound starts playing every 0.5 seconds, matching 120bpm. The end of this repeated Sound object will be a
+            sound playing for 0.1 seconds, and then no silence spacing afterwards. This is desired behavior. You can then perform
+            a time.sleep(0.4) seconds before replaying this Sound object. BUT there is sometimes latency in "starting" a sound,
             so the time sleep may need to be smaller, such as 0.35 seconds instead.
         """
-        repeat_times = int(
-            repeat_times)  # This can cause an error, which is desired
+        repeat_times = int(repeat_times)  # This can cause an error, which is desired
         if repeat_times < 1:
             repeat_times = 1
 
@@ -235,10 +263,11 @@ class Sound:
             tmp = src + spacer
             for i in range(end_n):
                 arr.append(tmp[i % n])
-            self.audio = array.array('h', arr)
+            self.audio = array.array("h", arr)
         else:
             raise RuntimeError(
-                "Cannot alter this sound object for repetition while playing this sound.")
+                "Cannot alter this sound object for repetition while playing this sound."
+            )
         return self
 
     def set_volume(self, volume):
@@ -338,7 +367,8 @@ class Sound:
             self.update_audio(True)
         else:
             raise RuntimeError(
-                "Cannot change duration or sample rate while playing sound.")
+                "Cannot change duration or sample rate while playing sound."
+            )
         return self
 
     def update_audio(self, overwrite: bool = False):
@@ -347,8 +377,18 @@ class Sound:
         - if overwrite=False and is_playing()==True, the playing audio will be updated
         - if overwrite=True and is_playing()==True, changes are present only in next play()
         """
-        arr = gen_wave(self._duration, self.volume, self.pitch, self.mod_f,
-                       self.mod_k, self.amp_f, self.amp_ka, self.amp_ac, self.cutoff, self._fs)
+        arr = gen_wave(
+            self._duration,
+            self.volume,
+            self.pitch,
+            self.mod_f,
+            self.mod_k,
+            self.amp_f,
+            self.amp_ka,
+            self.amp_ac,
+            self.cutoff,
+            self._fs,
+        )
         if not overwrite:
             for i in range(min(len(self.audio), len(arr))):
                 self.audio[i] = arr[i]
@@ -368,8 +408,7 @@ class Sound:
         """
         for i in range(len(self.audio)):
             # func(x:float, y:int16) -> y:int16
-            self.audio[i] = clip(
-                func(i/self._fs, self.audio[i]), -32768, 32767)
+            self.audio[i] = clip(func(i / self._fs, self.audio[i]), -32768, 32767)
         return self
 
     def play(self):
@@ -391,7 +430,7 @@ class Sound:
         return self
 
     def __repr__(self):
-        return f'Sound({self.pitch}, {self._duration}secs, {self.volume}%, {self.mod_f}mod)'
+        return f"Sound({self.pitch}, {self._duration}secs, {self.volume}%, {self.mod_f}mod)"
 
 
 class Song(list):
@@ -413,17 +452,17 @@ class Song(list):
     time.sleep(song.duration)
     song.stop()
     """
+
     MIN_VOLUME, MAX_VOLUME = -32_767, +32_767
 
     @staticmethod
     def create_silence(seconds=1):
-        """A helper method to create a special Sound object 
+        """A helper method to create a special Sound object
         containing silence of given duration.
         """
 
         core = Sound(duration=1)
-        core.audio = array.array(
-            'h', [0 for i in range(int(core._fs*seconds))])
+        core.audio = array.array("h", [0 for i in range(int(core._fs * seconds))])
 
         return core
 
@@ -450,8 +489,8 @@ class Song(list):
         super().append(obj)
 
     def extend(self, ls):
-        """Adds all the Sounds of ls to this Song. 
-        This can work for lists of Sounds, any iterable containing Sounds, 
+        """Adds all the Sounds of ls to this Song.
+        This can work for lists of Sounds, any iterable containing Sounds,
         or another Song.
 
         Ignores non-Sound objects.
@@ -469,19 +508,18 @@ class Song(list):
         self.duration = sum([s._duration for s in sounds])
         self._samples = sum([len(s.audio) for s in sounds])
         self.core = Sound(duration=1)
-        self.core.audio = array.array(
-            'h', [0 for i in range(int(self._samples))])
+        self.core.audio = array.array("h", [0 for i in range(int(self._samples))])
         ptr = 0
         for s in sounds:
             n = len(s.audio)
             for i in range(n):
-                self.core.audio[min(ptr, self._samples-1)] = s.audio[i]
+                self.core.audio[min(ptr, self._samples - 1)] = s.audio[i]
                 ptr += 1
 
     def play(self):
         """Starts the Song. It plays silence by default.
 
-        Has latency on startup. Will stop by itself after the 
+        Has latency on startup. Will stop by itself after the
             Song duration has ended (defined in init)
 
         If Song.play_sound(s1) was done already, then Song.start()
@@ -490,7 +528,7 @@ class Song(list):
         self.core.play()
 
     def stop(self):
-        """Stops the Song. Keeps the last sound that was 
+        """Stops the Song. Keeps the last sound that was
         used in Song.play_sound(s1)
 
         """
@@ -499,7 +537,7 @@ class Song(list):
     def is_playing(self):
         """Returns True if the Song is active.
 
-        Active means that it would play sound, when the 
+        Active means that it would play sound, when the
             Song.play_sound(s1) function is called.
         """
         return self.core.is_playing()
@@ -680,27 +718,63 @@ NOTES = {
 }
 
 _note_order = {
-    'b': 'x', '': 'y', '#': 'z',
-    'C': '0', 'D': '1', 'E': '2', 'F': '3', 'G': '4', 'A': '5', 'B': '6', }
+    "b": "x",
+    "": "y",
+    "#": "z",
+    "C": "0",
+    "D": "1",
+    "E": "2",
+    "F": "3",
+    "G": "4",
+    "A": "5",
+    "B": "6",
+}
 
-NOTE_NAMES = sorted(list(
-    NOTES.keys()), key=lambda x: x[-1] + _note_order[x[0]] + _note_order[x[1:-1]])
+NOTE_NAMES = sorted(
+    list(NOTES.keys()), key=lambda x: x[-1] + _note_order[x[0]] + _note_order[x[1:-1]]
+)
 
 
-def preload_all_pitches(duration=1, volume=40, mod_f=0, mod_k=0, amp_f=0, amp_ka=0, amp_ac=1, cutoff=0.01, fs=8000):
-    return {key: Sound(pitch=key, duration=duration, volume=volume, mod_f=mod_f, mod_k=mod_k, amp_f=amp_f, amp_ka=amp_ka, amp_ac=amp_ac, cutoff=cutoff, fs=fs) for key in NOTE_NAMES}
+def preload_all_pitches(
+    duration=1,
+    volume=40,
+    mod_f=0,
+    mod_k=0,
+    amp_f=0,
+    amp_ka=0,
+    amp_ac=1,
+    cutoff=0.01,
+    fs=8000,
+):
+    return {
+        key: Sound(
+            pitch=key,
+            duration=duration,
+            volume=volume,
+            mod_f=mod_f,
+            mod_k=mod_k,
+            amp_f=amp_f,
+            amp_ka=amp_ka,
+            amp_ac=amp_ac,
+            cutoff=cutoff,
+            fs=fs,
+        )
+        for key in NOTE_NAMES
+    }
 
 
 def save_all_pitches_file(sounds, filename="sounds"):
-    path = os.path.join(os.path.dirname(
-        os.path.realpath(__file__)), str(filename) + ".pickle")
+    path = os.path.join(
+        os.path.dirname(os.path.realpath(__file__)), str(filename) + ".pickle"
+    )
     with open(path, "rb") as f:
         pickle.dump(sounds, f)
 
 
 def load_all_pitches_file(filename="sounds"):
-    path = os.path.join(os.path.dirname(
-        os.path.realpath(__file__)), str(filename) + ".pickle")
+    path = os.path.join(
+        os.path.dirname(os.path.realpath(__file__)), str(filename) + ".pickle"
+    )
     with open(path, "rb") as f:
         return pickle.load(f)
 
@@ -740,10 +814,14 @@ def _test1():
 
 
 def _test_vol1():
-    Sound(volume=.001).play().wait_done()
-    while (ans := input("Enter volume (100-0): ")) and ans.count('.') <= 1 and ans.replace('.', '').isnumeric():
+    Sound(volume=0.001).play().wait_done()
+    while (
+        (ans := input("Enter volume (100-0): "))
+        and ans.count(".") <= 1
+        and ans.replace(".", "").isnumeric()
+    ):
         Sound(volume=float(ans)).play().wait_done()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     _test_vol1()
