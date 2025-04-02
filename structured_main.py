@@ -294,6 +294,7 @@ class SensorSystem:
         self.left_color = left_color
         self.right_color = right_color
         # self.ultrasonic = ultrasonic
+        self.ultrasonic = None
         self.touch_sensor = touch_sensor
 
         # Initialize sensors
@@ -835,7 +836,7 @@ class FirefighterRobot:
     def __init__(self):
         left_motor = Motor("B")
         right_motor = Motor("D")
-        dropper_motor = Motor("C")
+        dropper_motor = Motor("A")
         left_color = EV3ColorSensor(1)
         right_color = EV3ColorSensor(2)
         ultrasonic = EV3UltrasonicSensor(3)
