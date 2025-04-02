@@ -64,7 +64,7 @@ class FirefighterRobot:
         # Waiting Ready
         self.left_color.wait_ready()
         self.right_color.wait_ready()
-        self.ultrasonic.wait_ready()
+        # self.ultrasonic.wait_ready()
 
         logger.info(
             f"Robot initialized at position {self.position}, orientation {self.orientation}"
