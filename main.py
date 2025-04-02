@@ -328,10 +328,10 @@ def main():
         logger.info(f"Target position: ({x}, {y})")
         robot.navigate_to(x, y)
         # Only verify position if robot seems unsure
-        if not robot.align_with_grid():
-            logger.warning("Alignment failed, attempting position verification")
-            if not robot.verify_position():
-                logger.warning("Position verification failed, trying to continue")
+        # if not robot.align_with_grid():
+        #     logger.warning("Alignment failed, attempting position verification")
+        #     if not robot.verify_position():
+        #         logger.warning("Position verification failed, trying to continue")
 
     # Check if we've reached the entrance
     is_at_entrance = (
