@@ -384,9 +384,12 @@ class FireExtinguisher:
         logger.info("Dropping foam cube to extinguish fire")
         # TODO: Verify this works
         # Implementation of dropping mechanism
-        self.dropper_motor.set_position_relative(180)  # Rotate 180 degrees
-        self.dropper_motor.wait_is_stopped()
-        time.sleep(0.5)  # Wait for cube to drop
+        self.dropper_motor.set_dps(-360)  # Rotate 180 degrees
+        time.sleep(0.7)
+        self.dropper_motor.set_dps(0)
+
+        logger.info("Please pick up the Cube!")
+        time.sleep(1)  # Wait for cube to drop
 
         self.fires_extinguished += 1
         logger.info(
