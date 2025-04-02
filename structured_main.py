@@ -102,12 +102,12 @@ class SirenController:
         """Create the siren sound using the Sound module"""
         # Create high pitch siren sound
         self.siren_high = Sound(
-            duration=0.4, volume=85, pitch="A5", cutoff=0.05, fs=8000
+            duration=0.3, volume=85, pitch="A5", cutoff=0.05, fs=8000
         )
 
         # Create low pitch siren sound
         self.siren_low = Sound(
-            duration=0.4, volume=85, pitch="E5", cutoff=0.05, fs=8000
+            duration=0.3, volume=85, pitch="E5", cutoff=0.05, fs=8000
         )
 
         # Create silence gap
@@ -799,7 +799,7 @@ class MissionControl:
     def drop_on_sensor(self, sensor: str):
         ROTATION_SECONDS = 0.9
         INCREMENT = 0.05
-        FORWARD_MOVE = 0.4
+        FORWARD_MOVE = 0.5
         if sensor == "RIGHT":
             self.drive.turn_slightly_right(ROTATION_SECONDS)
             self.drive.move_forward_slightly(FORWARD_MOVE + 0.1)
