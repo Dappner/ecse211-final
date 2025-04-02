@@ -299,7 +299,7 @@ class FirefighterRobot:
             self.advance_blocks(-dy)
             # self.align_with_grid()
 
-        logger.info(f"Navigation complete, at position {self.position}")
+        logger.info(f"Navigation complete, at position {self.position} \n")
 
     def identify_room(self):
         "Identify the Current Room"
@@ -320,8 +320,6 @@ class FirefighterRobot:
 
 def main():
     robot = FirefighterRobot()
-    logger.info(f"Starting navigation at {robot.position}")
-
     logger.info(f"Starting navigation at {robot.position}")
 
     # Navigate through hallway path
