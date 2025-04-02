@@ -793,14 +793,20 @@ class MissionControl:
         if sensor == "RIGHT":
             self.drive.turn_slightly_right(ROTATION_SECONDS)
             self.extinguisher.drop_cube()
+            time.sleep(1)
             self.drive.move_forward_slightly(INCREMENT)
+            time.sleep(1)
             self.drive.turn_slightly_left(ROTATION_SECONDS - INCREMENT)
             self.drive.move_forward_slightly(INCREMENT)
         else:
             self.drive.turn_slightly_left(ROTATION_SECONDS)
+            time.sleep(1)
             self.drive.move_forward_slightly(INCREMENT)
+            time.sleep(1)
             self.extinguisher.drop_cube()
+            time.sleep(1)
             self.drive.turn_slightly_right(ROTATION_SECONDS - INCREMENT)
+            time.sleep(1)
             self.drive.move_forward_slightly(INCREMENT)
 
     def run_mission(self):
