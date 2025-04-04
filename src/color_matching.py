@@ -4,7 +4,7 @@ import math
 
 # Attemting to replace the np dependency with our own functions
 
-COLOR_DATA_DIR = "color_data/"
+COLOR_DATA_DIR = "../color_data/"
 
 # Dictionary mapping color names to their respective CSV files
 COLOR_DATA = {
@@ -354,7 +354,7 @@ def write_unknown_color(color, nb_data_points):
     Writes a sample of the given color's RGB data to a new file for testing purposes.
     """
     with open(COLOR_DATA_DIR + f"/{color}_data.csv", "r") as coloF:
-        with open("unknown_color.csv", "w") as uF:
+        with open("../unknown_color.csv", "w") as uF:
             for i, line in enumerate(coloF):
                 if i >= nb_data_points:
                     break
@@ -367,7 +367,7 @@ def test_matching_color():
     """
     for color in ["red", "orange", "white"]:
         write_unknown_color(color, 20)
-        given_color = match_unknown_color("unknown_color.csv")
+        given_color = match_unknown_color("../unknown_color.csv")
         if given_color == color:
             print(f"{color} test Passed\n")
         else:

@@ -1,14 +1,22 @@
-import threading
-from utils.brick import Motor, EV3ColorSensor, EV3UltrasonicSensor, TouchSensor
-import time
+"""
+Mission control module for managing the robot's firefighting mission.
+"""
 import logging
+import threading
+import time
+from src.constants import (
+    MISSION_TIME_LIMIT, EXPECTED_TIME_TO_BURNING_ROOM,
+    HALLWAY_PATH, ENTRANCE, BURNING_ROOM_ENTRY, BURNING_ROOM_SWEEP, RETURN_PATH,
+    NORTH
+)
 
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[logging.StreamHandler()],
 )
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("mission")
 
 
 class MissionControl:
@@ -71,8 +79,8 @@ class MissionControl:
 
         # Check if at entrance
         is_at_entrance = (
-            self.drive.position[0] == ENTRANCE[0]
-            and self.drive.position[1] == ENTRANCE[1]
+                self.drive.position[0] == ENTRANCE[0]
+                and self.drive.position[1] == ENTRANCE[1]
         )
 
         if is_at_entrance:
@@ -110,9 +118,6 @@ class MissionControl:
             logger.info("Successfully entered burning room")
             return True
         elif room_type == "avoid room":
-            raise Exception(
-                "For some reason it thinks we are in the avoid room. Color sensors!?"
-            )
             logger.warning("Entered wrong room (avoid room)! Exiting immediately")
             # Return to hallway
             self.drive.turn(NORTH)
@@ -135,14 +140,18 @@ class MissionControl:
             self.navigation.navigate_to(x, y)
 
             # Check for fire
-            if self.sensors.check_for_fire():
-                logger.info(f"Fire detected at position {self.drive.position}")
+            fire_detected, sensor_side = self.sensors.check_for_fire()
+            if fire_detected:
+                logger.info(f"Fire detected at position {self.drive.position} on {sensor_side} sensor")
                 self.fires_detected += 1
 
-                # TODO: Move to drop on top of the relevant sensor
-                # Drop
-                self.extinguisher.drop_cube()
-                # Wait one second (so we can move it out of the way and continue)
+                # Drop a cube on the specific sensor that detected the fire
+                if sensor_side == "left":
+                    self.drop_on_sensor("LEFT")
+                elif sensor_side == "right":
+                    self.drop_on_sensor("RIGHT")
+                else:  # Both sensors or unspecified
+                    self.extinguisher.drop_cube()
 
                 # If we've found both fires, we can stop
                 if self.extinguisher.get_fires_extinguished() >= 2:
@@ -199,10 +208,10 @@ class MissionControl:
     def _check_time_limit(self):
         """Check if mission time limit (3 minutes) has been reached."""
         if self.mission_start_time is None:
-            return
+            return False
 
         elapsed_time = time.time() - self.mission_start_time
-        if elapsed_time >= 180:  # 3 minutes
+        if elapsed_time >= MISSION_TIME_LIMIT:  # 3 minutes
             logger.warning("Mission time limit (3 minutes) reached!")
             return True
         return False
@@ -215,6 +224,7 @@ class MissionControl:
         self.siren.stop()
 
     def drop_on_sensor(self, sensor: str):
+        """Drop cube more precisely on a specific sensor."""
         ROTATION_SECONDS = 0.9
         FORWARD_MOVE = 0.5
         if sensor == "RIGHT":
@@ -254,15 +264,17 @@ class MissionControl:
                     self.siren.stop()
 
                     # Search for and extinguish fires
-                    # TODO: Actually Sweep the Burning Room
-                    # success = self.sweep_burning_room()
+                    success = self.sweep_burning_room()
+                    # Runs until we hit ~ 2 Min
 
-                    # Return to base
+                    # Return to base regardless of success
                     self.return_to_base()
                 else:
                     logger.error("Failed to enter burning room")
+                    self.return_to_base()
             else:
                 logger.error("Failed to reach entrance")
+                self.return_to_base()
 
             # Mission complete
             elapsed_time = time.time() - self.mission_start_time
@@ -276,161 +288,3 @@ class MissionControl:
         finally:
             # Ensure proper shutdown
             self.stop_mission()
-
-
-class FirefighterRobot:
-    """Main robot class that integrates all components."""
-
-    def __init__(self):
-        left_motor = Motor("B")
-        right_motor = Motor("D")
-        dropper_motor = Motor("A")
-        left_color = EV3ColorSensor(1)
-        right_color = EV3ColorSensor(2)
-        ultrasonic = EV3UltrasonicSensor(3)
-        touch_sensor = TouchSensor(4)
-
-        # Create sub-systems
-        self.drive_system = DriveSystem(left_motor, right_motor)
-        self.sensor_system = SensorSystem(
-            left_color, right_color, ultrasonic, touch_sensor
-        )
-        self.extinguisher = FireExtinguisher(dropper_motor)
-
-        self.siren = SirenController()
-
-        self.navigation = Navigation(self.drive_system, self.sensor_system)
-
-        self.mission_control = MissionControl(
-            self.drive_system,
-            self.sensor_system,
-            self.navigation,
-            self.extinguisher,
-            self.siren,
-        )
-
-        logger.info("FirefighterRobot fully initialized and ready")
-
-    def run_mission(self):
-        """Execute the firefighting mission."""
-        self.mission_control.run_mission()
-
-    def calibration_test(self):
-        """Run tests of basic components."""
-        logger.info("Starting calibration tests")
-
-        try:
-            # Test siren
-            logger.info("Testing siren")
-            self.siren.start()
-
-
-            # Test sensors (before moving so we can put something down)
-            logger.info("Testing sensors")
-            left_color = self.sensor_system.get_color_left()
-            right_color = self.sensor_system.get_color_right()
-            logger.info(f"Color readings - Left: {left_color}, Right: {right_color}")
-
-            if left_color == COLOR_RED:
-                self.mission_control.drop_on_sensor("LEFT")
-            elif right_color == COLOR_RED:
-                self.mission_control.drop_on_sensor("RIGHT")
-
-            time.sleep(1)
-
-            if self.sensor_system.ultrasonic:
-                distance = self.sensor_system.get_wall_distance()
-                logger.info(f"Distance to wall: {distance} cm")
-
-            time.sleep(3)
-
-            self.siren.stop()
-            logger.info("Calibration tests complete")
-
-        except Exception as e:
-            logger.error(f"Error during calibration: {e}")
-        finally:
-            # Clean shutdown
-            self.drive_system.stop()
-            self.siren.stop()
-
-    def run_simple_path(self):
-        """Run a simple path to test navigation."""
-        logger.info("Running simple test path")
-
-        try:
-            # Start siren
-            self.siren.start()
-
-            # Navigate first few steps
-            for x, y in HALLWAY_PATH[1:4]:  # Just the first few steps
-                logger.info(f"Navigating to ({x}, {y})")
-                self.navigation.navigate_to(x, y)
-
-            # Return to start
-            logger.info("Returning to start")
-            self.navigation.navigate_to(0, 0)
-
-            # Stop siren
-            self.siren.stop()
-
-        except Exception as e:
-            logger.error(f"Error during test path: {e}")
-        finally:
-            self.drive_system.stop()
-            self.siren.stop()
-
-    def test_nineties(self):
-        logger.info("testing 90s")
-        try:
-            self.drive_system.turn("EAST")
-            time.sleep(1)
-            self.drive_system.turn("SOUTH")
-            time.sleep(1)
-            self.drive_system.turn("WEST")
-            time.sleep(1)
-            self.drive_system.turn("SOUTH")
-            time.sleep(1)
-            self.drive_system.turn("EAST")
-            time.sleep(1)
-            self.drive_system.turn("NORTH")
-        except Exception as e:
-            logger.error(f"Error during test path: {e}")
-        finally:
-            self.drive_system.stop()
-
-def main():
-    """Main entry point for the firefighter robot mission."""
-    robot = FirefighterRobot()
-
-    try:
-        robot.run_mission()
-    except KeyboardInterrupt:
-        logger.info("Mission interrupted by user")
-    finally:
-        # Stop everything
-        if robot:
-            robot.drive_system.stop()
-            robot.siren.stop()
-
-
-def calibration_testing():
-    """Test basic robot functionality."""
-    robot = FirefighterRobot()
-    robot.calibration_test()
-
-
-def simple_path_test():
-    """Run a simple navigation test."""
-    robot = FirefighterRobot()
-    robot.run_simple_path()
-
-def testing_nineties():
-    """ Turns the robot a couple of times."""
-    robot = FirefighterRobot()
-    robot.test_nineties()
-
-if __name__ == "__main__":
-    # main()
-    calibration_testing()
-    # simple_path_test()
