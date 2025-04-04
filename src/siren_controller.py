@@ -3,11 +3,6 @@ import threading
 import time
 from utils.sound import Song, Sound
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler()],
-)
 logger = logging.getLogger("siren")
 
 

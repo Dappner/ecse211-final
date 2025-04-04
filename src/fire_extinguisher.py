@@ -4,11 +4,6 @@ import time
 from src.constants import DROPPER_MOTOR_PORT
 from utils.brick import Motor
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler()],
-)
 logger = logging.getLogger("extinguisher")
 
 
