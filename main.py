@@ -1,6 +1,6 @@
 import logging
 import time
-from utils.brick import Motor, EV3ColorSensor, EV3UltrasonicSensor, TouchSensor
+from utils.brick import Motor, EV3ColorSensor, EV3UltrasonicSensor, TouchSensor, wait_ready_sensors
 
 from src.drive_system import DriveSystem
 from src.sensor_system import SensorSystem
@@ -8,9 +8,8 @@ from src.fire_extinguisher import FireExtinguisher
 from src.navigation import Navigation
 from src.siren_controller import SirenController
 from src.mission_control import MissionControl
-from src.constants import COLOR_RED, HALLWAY_PATH
-# Import path for testing
-
+from src.constants import COLOR_RED, HALLWAY_PATH, LEFT_MOTOR_PORT, RIGHT_MOTOR_PORT, DROPPER_MOTOR_PORT, \
+    LEFT_COLOR_PORT, RIGHT_COLOR_PORT, ULTRASONIC_PORT, TOUCH_PORT, EAST, SOUTH, WEST, NORTH
 
 # Configure logging for the main module
 logging.basicConfig(
@@ -18,46 +17,62 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[logging.StreamHandler()],
 )
+
 logger = logging.getLogger(__name__)
+
 
 class FirefighterRobot:
     """Main robot class that integrates all components."""
 
     def __init__(self):
         # Initialize hardware components
-        logger.info("Initializing hardware components...")
-        left_motor = Motor("B")
-        right_motor = Motor("D")
-        dropper_motor = Motor("A")
-        left_color = EV3ColorSensor(1)
-        right_color = EV3ColorSensor(2)
-        ultrasonic = EV3UltrasonicSensor(3)
-        touch_sensor = TouchSensor(4)
+        logger.info("Initializing Robot")
+        self.left_motor = Motor(LEFT_MOTOR_PORT)
+        self.right_motor = Motor(RIGHT_MOTOR_PORT)
+        self.dropper_motor = Motor(DROPPER_MOTOR_PORT)
+
+        # Initialize sensors
+        self.left_color = EV3ColorSensor(LEFT_COLOR_PORT)
+        self.right_color = EV3ColorSensor(RIGHT_COLOR_PORT)
+        self.ultrasonic = EV3UltrasonicSensor(ULTRASONIC_PORT)
+        self.touch_sensor = TouchSensor(TOUCH_PORT)
 
         # Create sub-systems
-        logger.info("Creating subsystems...")
-        self.drive_system = DriveSystem(left_motor, right_motor)
+        wait_ready_sensors()
+
+        self.drive_system = DriveSystem(self.left_motor, self.right_motor)
         self.sensor_system = SensorSystem(
-            left_color, right_color, ultrasonic, touch_sensor
+            self.left_color, self.right_color, self.ultrasonic, self.touch_sensor
         )
-        self.extinguisher = FireExtinguisher(dropper_motor)
+        self.extinguisher = FireExtinguisher(self.dropper_motor)
         self.siren = SirenController()
         self.navigation = Navigation(self.drive_system, self.sensor_system)
 
-        # Initialize mission control
+        # Init mission control and provide it the subsystems
         self.mission_control = MissionControl(
-            self.drive_system,
-            self.sensor_system,
-            self.navigation,
-            self.extinguisher,
-            self.siren,
-        )
+                self.drive_system,
+                self.sensor_system,
+                self.navigation,
+                self.extinguisher,
+                self.siren
+            )
+
+        self.initialized = True
 
         logger.info("FirefighterRobot fully initialized and ready")
 
     def run_mission(self):
         """Execute the firefighting mission."""
-        self.mission_control.run_mission()
+        logger.info("Starting firefighter mission")
+
+        try:
+            self.mission_control.run_mission()
+        except KeyboardInterrupt:
+            logger.info("Mission interrupted by user")
+        except Exception as e:
+            logger.error(f"Error during mission: {e}")
+        finally:
+            self.mission_control.stop_mission()
 
     def calibration_test(self):
         """Run tests of basic components."""
@@ -132,7 +147,6 @@ class FirefighterRobot:
         """Test 90-degree turning capabilities."""
         logger.info("Testing 90-degree turns")
         try:
-            from constants import EAST, SOUTH, WEST, NORTH
             self.drive_system.turn(EAST)
             time.sleep(1)
             self.drive_system.turn(SOUTH)
@@ -184,8 +198,4 @@ def testing_nineties():
 
 
 if __name__ == "__main__":
-    # Choose which function to run
-    # main()                # Run the full mission
-    calibration_testing()  # Run basic tests
-    # simple_path_test()    # Test navigation
-    # testing_nineties()    # Test turns
+    main()

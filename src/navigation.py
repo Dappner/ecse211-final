@@ -35,7 +35,7 @@ class Particle:
 
 class Navigation:
     """
-  Navigation system which now includes position tracking, error correction,
+    Navigation system which now includes position tracking, error correction,
     and sensor-based localization.
     """
 
@@ -232,9 +232,16 @@ class Navigation:
             }
 
             for p in self.particles:
-                orientation_counts[p.orientation] += p.weight
+                if p.orientation in orientation_counts:
+                    orientation_counts[p.orientation] += p.weight
+                else:
+                    logger.warning(f"Particle found with invalid orientation: {p.orientation}")
 
-            estimated_orientation = max(orientation_counts, key=orientation_counts.get)
+            if not any(orientation_counts.values()):
+                logger.warning("Could not determine estimated orientation from particles.")
+                estimated_orientation = self.drive.orientation  # Fallback to drive system's current orientation
+            else:
+                estimated_orientation = max(orientation_counts, key=orientation_counts.get)
 
             # Update estimated position
             self.estimated_position = [avg_x, avg_y]
@@ -249,10 +256,6 @@ class Navigation:
 
             # If confidence is high enough, update drive system position
             if self.position_confidence > 0.7:
-                self.drive.update_position(
-                    round(avg_x) - self.drive.position[0],
-                    round(avg_y) - self.drive.position[1]
-                )
                 if self.drive.orientation != estimated_orientation:
                     logger.info(f"Correcting orientation from {self.drive.orientation} to {estimated_orientation}")
                     self.drive.orientation = estimated_orientation
@@ -886,4 +889,4 @@ class Navigation:
         self.drive.move_backward_slightly(0.3)
 
         logger.info("No fire detected after search pattern")
-        return False, "none"
+        return False, "NONE"

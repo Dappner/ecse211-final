@@ -13,7 +13,7 @@ COLOR_DATA = {
     "yellow": COLOR_DATA_DIR + "yellow_data.csv",  # Room to avoid
     "green": COLOR_DATA_DIR + "green_data.csv",  # Green Card
     "red": COLOR_DATA_DIR + "red_data.csv",  # Red Card
-    "orange": COLOR_DATA_DIR + "crange_data.csv",  # Entrance line
+    "orange": COLOR_DATA_DIR + "orange_data.csv",  # Entrance line
 }
 
 

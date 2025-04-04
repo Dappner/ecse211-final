@@ -218,13 +218,13 @@ class SensorSystem:
         right_match = (right_color == target_color)
 
         if left_match and right_match:
-            return True, "both"
+            return True, "BOTH"
         elif left_match:
-            return True, "left"
+            return True, "LEFT"
         elif right_match:
-            return True, "right"
+            return True, "RIGHT"
         else:
-            return False, "none"
+            return False, "NONE"
 
     def check_for_fire(self):
         """Check for red color (fire)."""
