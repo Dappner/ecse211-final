@@ -1,6 +1,6 @@
 import logging
 from src.constants import (
-    MOVE_SPEED, MOTOR_DPS, MOTOR_POWER, TURN_TIME,
+    MOTOR_DPS, MOTOR_POWER,
     NORTH, SOUTH, EAST, WEST, DIRECTION_VECTORS
 )
 import time
@@ -21,12 +21,16 @@ class DriveSystem:
         self.right_motor = right_motor
 
         # Initialize motors
-        self.left_motor.set_limits(dps=MOVE_SPEED)
-        self.right_motor.set_limits(dps=MOVE_SPEED)
+        self.left_motor.reset_encoder()
+        self.right_motor.reset_encoder()
 
         # Position tracking
-        self.position = [0, 0]  # [x, y]
+        self.position = [0, 0]
         self.orientation = NORTH
+
+        self.turn_time_factor = 1.0
+        self.forward_time_factor = 1.0
+        self.power_factor = 1.0
 
         logger.info(
             f"Drive system initialized at position {self.position}, orientation {self.orientation}"

@@ -7,7 +7,7 @@ from src.sensor_system import SensorSystem
 from src.fire_extinguisher import FireExtinguisher
 from src.navigation import Navigation
 from src.siren_controller import SirenController
-from src.misson_control import MissionControl
+from src.mission_control import MissionControl
 from src.constants import COLOR_RED, HALLWAY_PATH
 # Import path for testing
 

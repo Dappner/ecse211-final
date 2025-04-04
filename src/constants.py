@@ -117,6 +117,10 @@ MAX_GRID_ALIGNMENT_ATTEMPTS = 10
 MAX_ENTRANCE_ALIGNMENT_ATTEMPTS = 5
 
 
+# =========== Timing Related Constants ========
+
+EXPECTED_TIME_TO_BURNING_ROOM = 20
+
 
 
 class RuntimeConstants:
