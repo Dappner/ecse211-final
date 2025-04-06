@@ -581,30 +581,35 @@ class Navigation:
 
         # If grid line detected recently, try to align with it precisely
         if self.last_grid_line_detection and time.time() - self.last_grid_line_detection < 2.0:
-            self._align_with_grid_lines()
+            self.align_with_grid()
 
-        # If confidence is still low, perform active sensing
+        # If confidence is still low, perform active sensing (rotate to gather information)
         if self.position_confidence < 0.5 or full_rotation:
             logger.info("Performing active sensing to improve localization")
 
-            # Take initial readings
+            # Take initial readings in current orientation
             sensor_data = self.sensors.get_sensor_data()
             self.update_particle_weights(sensor_data)
 
             # Perform rotation to gather sensor data from different directions
             orientations = [NORTH, EAST, SOUTH, WEST]
+            current_idx = orientations.index(self.drive.orientation)
+
             if full_rotation:
-                # Do a full 360° rotation
-                for direction in orientations:
-                    if direction != self.drive.orientation:
-                        self.drive.turn(direction)
-                        time.sleep(0.3)  # Pause to get stable readings
-                        sensor_data = self.sensors.get_sensor_data()
-                        self.update_particle_weights(sensor_data)
-                        self.resample_particles()
+                for i in range(1, 4):  # 3 turns to make a full circle
+                    next_idx = (current_idx + i) % 4
+                    next_orientation = orientations[next_idx]
+
+                    # Turn to next orientation in sequence
+                    self.drive.turn(next_orientation)
+                    time.sleep(0.3)  # Pause to get stable readings
+
+                    # Get sensor data and update
+                    sensor_data = self.sensors.get_sensor_data()
+                    self.update_particle_weights(sensor_data)
+                    self.resample_particles()
             else:
-                # Just look left and right
-                current_idx = orientations.index(self.drive.orientation)
+                # Just look left and right from current orientation
                 left_idx = (current_idx - 1) % 4
                 right_idx = (current_idx + 1) % 4
 
@@ -614,13 +619,13 @@ class Navigation:
                 sensor_data = self.sensors.get_sensor_data()
                 self.update_particle_weights(sensor_data)
 
-                # Look right (from original orientation)
+                # Look right (need to turn 180° from left orientation)
                 self.drive.turn(orientations[right_idx])
                 time.sleep(0.3)
                 sensor_data = self.sensors.get_sensor_data()
                 self.update_particle_weights(sensor_data)
 
-            # Return to original orientation
+            # Return to original orientation using the shortest path
             self.drive.turn(initial_orientation)
             time.sleep(0.3)
 
@@ -643,51 +648,134 @@ class Navigation:
         return self.position_confidence > 0.6
 
     def _check_for_landmarks(self):
-        """Check for landmarks to improve localization"""
-        # Check for grid lines
-        on_black = self.sensors.is_on_black_line()
+        """Check for landmarks to improve localization with sensor offsets"""
+
+        # Define sensor offsets relative to robot center
+        HORIZONTAL_SENSOR_OFFSET = 2  # cm
+        FORWARD_SENSOR_OFFSET_Y = 4  # cm forward of robot center
+        ULTRASONIC_FORWARD_OFFSET = 3  # cm forward of robot center (adjust based on your robot design)
+
+        # Convert to grid units for calculations
+        sensor_offset_x_grid = HORIZONTAL_SENSOR_OFFSET / BLOCK_SIZE
+        sensor_offset_y_grid = FORWARD_SENSOR_OFFSET_Y / BLOCK_SIZE
+        us_offset_y_grid = ULTRASONIC_FORWARD_OFFSET / BLOCK_SIZE
+
+        landmark_detected = False
+
+        # Check for black grid lines
+        on_black, sensor_side = self.sensors.is_on_black_line()
         if on_black[0]:  # If black line detected
             self.last_grid_line_detection = time.time()
             self.grid_line_confidence = 0.9
 
-            # Update particle weights to favor particles near grid lines
+            # Calculate robot center position based on which sensor detected the line
+            robot_offset_x = 0
+            if sensor_side == "left":
+                robot_offset_x = -sensor_offset_x_grid
+            elif sensor_side == "right":
+                robot_offset_x = sensor_offset_x_grid
+
+            # Always apply the forward offset (assumes forward orientation)
+            robot_offset_y = -sensor_offset_y_grid  # Negative because sensor is in front
+
+            # Rotate offsets based on current orientation
+            rotated_offset_x, rotated_offset_y = self._rotate_offset(
+                robot_offset_x, robot_offset_y, self.drive.orientation)
+
+            # Update particle weights with proper offsets
             for p in self.particles:
-                # Check if particle is near a grid line (integer position)
-                x_near_line = abs(p.x - round(p.x)) < 0.1
-                y_near_line = abs(p.y - round(p.y)) < 0.1
+                # Calculate particle's sensor position
+                sensor_x = p.x + rotated_offset_x
+                sensor_y = p.y + rotated_offset_y
+
+                # Check if particle's sensor (not center) is near a grid line
+                x_near_line = abs(sensor_x - round(sensor_x)) < 0.1
+                y_near_line = abs(sensor_y - round(sensor_y)) < 0.1
 
                 if x_near_line or y_near_line:
                     p.weight *= 2.0  # Boost weight for particles near grid lines
                 else:
                     p.weight *= 0.3  # Reduce weight for others
 
-            # Normalize weights
-            self._normalize_weights()
-            logger.info(f"Grid line detected! Adjusted particle weights.")
-            return True
+            landmark_detected = True
 
         # Check for entrance line (orange)
-        found_orange, _ = self.sensors.check_for_entrance()
+        found_orange, orange_side = self.sensors.check_for_entrance()
         if found_orange:
-            # If orange detected, we're likely near the entrance
-            entrance_pos = BURNING_ROOM_ENTRY
+            # Calculate offsets similar to black line detection
+            robot_offset_x = 0
+            if orange_side == "left":
+                robot_offset_x = -sensor_offset_x_grid
+            elif orange_side == "right":
+                robot_offset_x = sensor_offset_x_grid
 
-            # Update particles to concentrate near entrance
+            # Apply forward offset
+            robot_offset_y = -sensor_offset_y_grid
+
+            # Rotate offsets
+            rotated_offset_x, rotated_offset_y = self._rotate_offset(
+                robot_offset_x, robot_offset_y, self.drive.orientation)
+
+            # Update particles near entrance
+            entrance_pos = BURNING_ROOM_ENTRY
             for p in self.particles:
-                dist_to_entrance = math.sqrt((p.x - entrance_pos[0]) ** 2 +
-                                             (p.y - entrance_pos[1]) ** 2)
+                # Calculate distance from particle's sensor to entrance
+                sensor_x = p.x + rotated_offset_x
+                sensor_y = p.y + rotated_offset_y
+
+                dist_to_entrance = math.sqrt((sensor_x - entrance_pos[0]) ** 2 +
+                                             (sensor_y - entrance_pos[1]) ** 2)
 
                 if dist_to_entrance < 1.5:  # Within 1.5 grid cells of entrance
                     p.weight *= 3.0  # Significantly boost weight
                 else:
                     p.weight *= 0.2  # Significantly reduce weight
 
-            # Normalize weights
-            self._normalize_weights()
-            logger.info(f"Entrance line detected! Adjusted particle weights.")
-            return True
+            landmark_detected = True
 
-        return False
+        # Check for wall detection with ultrasonic sensor
+        if self.sensors.has_ultrasonic:
+            wall_distance = self.sensors.get_wall_distance()
+            if wall_distance is not None and wall_distance < BLOCK_SIZE * 3:  # Only use reliable close measurements
+                # Calculate ultrasonic sensor position using its offset
+                us_offset_x, us_offset_y = self._rotate_offset(
+                    0, us_offset_y_grid, self.drive.orientation)
+
+                for p in self.particles:
+                    # Calculate expected distance for this particle's sensor
+                    expected_distance = self._expected_wall_distance(
+                        p.x + us_offset_x, p.y + us_offset_y, p.orientation)
+
+                    if expected_distance is not None:
+                        # Calculate weight based on difference
+                        distance_diff = abs(wall_distance - expected_distance)
+                        distance_weight = math.exp(-distance_diff ** 2 / (2 * 5 ** 2))  # Gaussian with σ=5cm
+
+                        # Apply weight
+                        p.weight *= (0.3 + 0.7 * distance_weight)
+
+                landmark_detected = True
+
+        # Normalize weights if any landmark was detected
+        if landmark_detected:
+            self._normalize_weights()
+            logger.info(f"Landmark detection updated particle weights")
+
+        return landmark_detected
+
+    def _rotate_offset(self, offset_x, offset_y, orientation):
+        """Rotate sensor offsets based on robot orientation"""
+        if orientation == NORTH:
+            return offset_x, offset_y
+        elif orientation == EAST:
+            return offset_y, -offset_x
+        elif orientation == SOUTH:
+            return -offset_x, -offset_y
+        elif orientation == WEST:
+            return -offset_y, offset_x
+        return offset_x, offset_y  # D
+
+
     def align_with_grid(self):
         """Align robot with black grid lines using both color sensors."""
         logger.info("Aligning with grid...")

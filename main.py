@@ -1,7 +1,7 @@
 import logging
 import time
 from utils.brick import Motor, EV3ColorSensor, EV3UltrasonicSensor, TouchSensor, wait_ready_sensors
-
+import argparse
 from src.drive_system import DriveSystem
 from src.sensor_system import SensorSystem
 from src.fire_extinguisher import FireExtinguisher
@@ -163,13 +163,35 @@ class FirefighterRobot:
         finally:
             self.drive_system.stop()
 
+    def test_grid_alignment(self):
+        """Test the grid alignment feature."""
+        logger.info("Testing grid alignment")
+
+        try:
+            # Try to find a grid line
+            found_line = self.navigation.align_with_grid()
+
+        except KeyboardInterrupt:
+            logger.info("Test interrupted by user")
+        except Exception as e:
+            logger.error(f"Error during grid alignment test: {e}")
+        finally:
+            self.drive_system.stop()
 
 def main():
     """Main entry point for the firefighter robot mission."""
+    parser = argparse.ArgumentParser(description='Firefighter Robot Control')
+    parser.add_argument('--test-grid', action='store_true', help='Run grid alignment test')
+
+    args = parser.parse_args()
+
     robot = FirefighterRobot()
 
     try:
-        robot.run_mission()
+        if args.test_grid:
+            robot.test_grid_alignment()
+        else:
+            robot.run_mission()
     except KeyboardInterrupt:
         logger.info("Mission interrupted by user")
     finally:
