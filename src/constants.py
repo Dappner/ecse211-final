@@ -10,13 +10,13 @@ DROPPER_MOTOR_PORT = "A"
 # Sensor ports
 LEFT_COLOR_PORT = 1
 RIGHT_COLOR_PORT = 2
-ULTRASONIC_PORT = 3
-TOUCH_PORT = 4
+ULTRASONIC_PORT = 4
+TOUCH_PORT = 3
 
 # ============= Motor Control Constants =============
 # Basic movement parameters
 MOTOR_POWER = 30.5  # Power percentage (0-100)
-MOTOR_DPS = 180  # Degrees per second for speed-based control
+MOTOR_DPS = 360  # Degrees per second for speed-based control
 SPEED_MODIFIER = 2  # Multiplier for MOTOR_DPS
 
 # Time-based movement constants
@@ -78,14 +78,14 @@ for y in range(GRID_HEIGHT):
 # Number of particles for Monte Carlo localization
 MCL_PARTICLE_COUNT = 100
 # Standard deviation for motion model (in grid units)
-MCL_MOTION_NOISE = 0.1
+MCL_MOTION_NOISE = 0.2
 # Standard deviation for sensor model (in cm)
-MCL_SENSOR_NOISE = 3.0
+MCL_SENSOR_NOISE = 5.0
 # Weight threshold for resampling
 MCL_RESAMPLING_THRESHOLD = 0.5
 
 # ============= Calibration Constants =============
-MAX_GRID_ALIGNMENT_ATTEMPTS = 10
+MAX_GRID_ALIGNMENT_ATTEMPTS = 25
 MAX_ENTRANCE_ALIGNMENT_ATTEMPTS = 5
 
 # =========== Timing Related Constants ========

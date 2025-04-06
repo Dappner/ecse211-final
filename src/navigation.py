@@ -651,9 +651,9 @@ class Navigation:
         """Check for landmarks to improve localization with sensor offsets"""
 
         # Define sensor offsets relative to robot center
-        HORIZONTAL_SENSOR_OFFSET = 2  # cm
-        FORWARD_SENSOR_OFFSET_Y = 4  # cm forward of robot center
-        ULTRASONIC_FORWARD_OFFSET = 3  # cm forward of robot center (adjust based on your robot design)
+        HORIZONTAL_SENSOR_OFFSET = 4  # cm offset from center
+        FORWARD_SENSOR_OFFSET_Y = 10  # cm forward of robot center
+        ULTRASONIC_FORWARD_OFFSET = 13.5  # cm forward of robot center (adjust based on your robot design)
 
         # Convert to grid units for calculations
         sensor_offset_x_grid = HORIZONTAL_SENSOR_OFFSET / BLOCK_SIZE
@@ -662,17 +662,18 @@ class Navigation:
 
         landmark_detected = False
 
-        # Check for black grid lines
-        on_black, sensor_side = self.sensors.is_on_black_line()
-        if on_black[0]:  # If black line detected
+        on_black_flag, sensor_side = self.sensors.is_on_black_line()
+
+        if on_black_flag:  # If black line detected
             self.last_grid_line_detection = time.time()
             self.grid_line_confidence = 0.9
+            landmark_detected = True
 
             # Calculate robot center position based on which sensor detected the line
             robot_offset_x = 0
-            if sensor_side == "left":
+            if sensor_side == "LEFT":
                 robot_offset_x = -sensor_offset_x_grid
-            elif sensor_side == "right":
+            elif sensor_side == "RIGHT":
                 robot_offset_x = sensor_offset_x_grid
 
             # Always apply the forward offset (assumes forward orientation)
@@ -697,16 +698,16 @@ class Navigation:
                 else:
                     p.weight *= 0.3  # Reduce weight for others
 
-            landmark_detected = True
+        # Check for Orange Line
+        found_orange_flag, orange_side = self.sensors.check_for_entrance()  # Direct unpacking
 
-        # Check for entrance line (orange)
-        found_orange, orange_side = self.sensors.check_for_entrance()
-        if found_orange:
+        if found_orange_flag:
             # Calculate offsets similar to black line detection
+            landmark_detected = True
             robot_offset_x = 0
-            if orange_side == "left":
+            if orange_side == "LEFT":
                 robot_offset_x = -sensor_offset_x_grid
-            elif orange_side == "right":
+            elif orange_side == "RIGHT":
                 robot_offset_x = sensor_offset_x_grid
 
             # Apply forward offset
@@ -738,23 +739,27 @@ class Navigation:
             wall_distance = self.sensors.get_wall_distance()
             if wall_distance is not None and wall_distance < BLOCK_SIZE * 3:  # Only use reliable close measurements
                 # Calculate ultrasonic sensor position using its offset
+                particle_weights_updated_by_us = False
                 us_offset_x, us_offset_y = self._rotate_offset(
                     0, us_offset_y_grid, self.drive.orientation)
 
                 for p in self.particles:
-                    # Calculate expected distance for this particle's sensor
+                    particle_sensor_x = p.x + us_offset_x
+                    particle_sensor_y = p.y + us_offset_y
+
+                    # Calculate expected distance for this particle's sensor using particles orientation
                     expected_distance = self._expected_wall_distance(
-                        p.x + us_offset_x, p.y + us_offset_y, p.orientation)
+                        particle_sensor_x, particle_sensor_y, p.orientation)
 
                     if expected_distance is not None:
-                        # Calculate weight based on difference
                         distance_diff = abs(wall_distance - expected_distance)
-                        distance_weight = math.exp(-distance_diff ** 2 / (2 * 5 ** 2))  # Gaussian with σ=5cm
+                        sigma_us = MCL_SENSOR_NOISE
+                        distance_weight = math.exp(-distance_diff ** 2 / (2 * sigma_us ** 2))
+                        p.weight *= (0.3 + 0.7 * distance_weight)  # Blend factor
+                        particle_weights_updated_by_us = True
 
-                        # Apply weight
-                        p.weight *= (0.3 + 0.7 * distance_weight)
-
-                landmark_detected = True
+                if particle_weights_updated_by_us:
+                    landmark_detected = True
 
         # Normalize weights if any landmark was detected
         if landmark_detected:
@@ -775,7 +780,6 @@ class Navigation:
             return -offset_y, offset_x
         return offset_x, offset_y  # D
 
-
     def align_with_grid(self):
         """Align robot with black grid lines using both color sensors."""
         logger.info("Aligning with grid...")
@@ -791,11 +795,11 @@ class Navigation:
                     self.drive.stop()
                     return True
                 elif on_black[1] == "left":
-                    logger.debug("Left sensor on black, turning right slightly")
-                    self.drive.turn_slightly_right(0.1)
-                elif on_black[1] == "right":
-                    logger.debug("Right sensor on black, turning left slightly")
+                    logger.info("Left sensor on black, turning right slightly")
                     self.drive.turn_slightly_left(0.1)
+                elif on_black[1] == "right":
+                    logger.info("Right sensor on black, turning left slightly")
+                    self.drive.turn_slightly_right(0.1)
             else:
                 logger.debug("No black detected, moving forward slowly")
                 self.drive.move_forward_slightly(0.2)
