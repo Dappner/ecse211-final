@@ -79,45 +79,39 @@ class MissionControl:
         logger.info(f"Ended Mission attempt in {elapsed_time:.1f} seconds")
         self.stop_mission()
 
-    def navigate_hallway(self):
+    def calibrate_and_update_position(self, target_x, target_y):
         """
-        Navigate through the hallway with the first movement calibrating distance...
+        Calibrates movement during first block navigation.
+        Assumes starting position of (0,0) facing NORTH and moving to (0,1).
+        Expected distance to wall after movement should be 75cm.
+
+        Args:
+            target_x: Target X coordinate (should be 0)
+            target_y: Target Y coordinate (should be 1)
+
+        Returns:
+            tuple: (success, actual_distance_moved)
         """
-
-        logger.info("Starting hallway navigation")
-
-        # Get the first target position (skip start position)
-        first_target_x, first_target_y = HALLWAY_PATH[1]
-
-        # CALIBRATION SECTION - First movement only
-        logger.info(f"Performing calibration on first movement to ({first_target_x}, {first_target_y})")
+        logger.info(f"Calibrating during first movement to ({target_x}, {target_y})")
 
         # Get initial position
         start_pos = self.navigation.estimated_position
 
-        # Turn to face the right direction
-        if first_target_x > start_pos[0]:
-            self.drive.turn(EAST)
-        elif first_target_x < start_pos[0]:
-            self.drive.turn(WEST)
-        elif first_target_y > start_pos[1]:
-            self.drive.turn(NORTH)
-        elif first_target_y < start_pos[1]:
-            self.drive.turn(SOUTH)
-
-        # Get initial distance reading if ultrasonic sensor is available
+        # Get initial distance reading
         initial_distance = None
         if self.sensor_system.has_ultrasonic:
             initial_distance = self.sensor_system.get_wall_distance()
             if initial_distance is not None:
                 logger.info(f"Initial distance to wall: {initial_distance:.1f}cm")
 
-        # Move forward one block with current timing
+        # Execute movement (always one block north)
         current_forward_time = self.drive.forward_time_per_block
-        logger.info(f"Moving forward one block with current timing ({current_forward_time:.2f}s)")
+        logger.info(f"Moving forward one block with timing {current_forward_time:.2f}s")
         self.drive.advance_blocks(1)
 
-        # Measure distance moved if possible
+        # Measure actual distance moved
+        actual_blocks_moved = 1.0  # Default assumption
+
         if initial_distance is not None:
             final_distance = self.sensor_system.get_wall_distance()
             if final_distance is not None:
@@ -126,24 +120,48 @@ class MissionControl:
 
                 logger.info(f"Distance moved: {distance_moved:.1f}cm (expected {expected_distance}cm)")
 
-                # Calculate adjustment factor if we moved a reasonable distance
-                if distance_moved > 5:  # At least 5cm movement
-                    adjustment_factor = expected_distance / distance_moved
+                # Calculate actual blocks moved
+                actual_blocks_moved = distance_moved / BLOCK_SIZE
+                logger.info(f"Actual blocks moved: {actual_blocks_moved:.2f}")
 
-                    # Limit extreme adjustments
-                    adjustment_factor = max(0.8, min(1.2, adjustment_factor))
+                # Adjust timing for future movements
+                adjustment_factor = expected_distance / distance_moved
+                adjustment_factor = max(0.8, min(1.2, adjustment_factor))
 
-                    # Apply adjustment directly to drive system
-                    new_forward_time = current_forward_time * adjustment_factor
-                    self.drive.forward_time_per_block = new_forward_time
+                # Also adjusts rotation factor
+                self.drive.turn_90_time = self.drive.turn_90_time * adjustment_factor
+                self.drive.forward_time_per_block = current_forward_time * adjustment_factor
+                logger.info(f"Adjusted forward time: {self.drive.forward_time_per_block:.2f}s (factor: {adjustment_factor:.2f})")
 
-                    logger.info(f"Adjusted forward time: {new_forward_time:.2f}s (factor: {adjustment_factor:.2f})")
+                # Check final position against expected 75cm
+                expected_final_distance = 75.0  # cm
+                if abs(final_distance - expected_final_distance) > 10:  # Allow 10cm tolerance
+                    logger.warning(
+                        f"Position may be off: distance to wall is {final_distance:.1f}cm (expected {expected_final_distance}cm)")
 
-        # Update particle positions after first movement
-        self.navigation.update_particles_after_movement(
-            first_target_x - start_pos[0],
-            first_target_y - start_pos[1]
+        # Update particle positions based on actual movement
+        self.navigation.update_particles_after_movement(0, actual_blocks_moved)
+
+        # Update position estimate
+        self.navigation.update_position_estimate()
+
+        return True, actual_blocks_moved
+
+    def navigate_hallway(self):
+        """
+        Navigate through the hallway with calibration during first movement.
+        """
+        logger.info("Starting hallway navigation")
+
+        # First waypoint with calibration (0,1)
+        first_target_x, first_target_y = HALLWAY_PATH[1]
+        success, distance_moved = self.calibrate_and_update_position(
+            first_target_x, first_target_y
         )
+
+        if not success:
+            logger.warning("Failed to navigate to first waypoint")
+            return False
 
         # Continue with remaining hallway path (skip the first target since we just went there)
         for i, (x, y) in enumerate(HALLWAY_PATH[2:], 2):  # Start index at 2
@@ -153,22 +171,22 @@ class MissionControl:
             if not self.attempt_navigation(x, y, "hallway_navigation"):
                 return False
 
-        # The rest of your function remains the same
+        # Final position verification
         current_pos = self.navigation.estimated_position
         expected_pos = HALLWAY_PATH[-1]
 
-        # Use a slightly larger tolerance for floating point comparison
         if abs(current_pos[0] - expected_pos[0]) > POSITION_TOLERANCE or abs(
                 current_pos[1] - expected_pos[1]) > POSITION_TOLERANCE:
             logger.warning(
                 f"Position potentially off after hallway nav: expected {expected_pos}, got ~[{current_pos[0]:.2f}, {current_pos[1]:.2f}]. Localizing.")
             self.navigation.localize()
-            # Re-check after localization
+            # Check again after running localization.
+
             current_pos = self.navigation.estimated_position
             if abs(current_pos[0] - expected_pos[0]) > POSITION_TOLERANCE or abs(
                     current_pos[1] - expected_pos[1]) > POSITION_TOLERANCE:
                 logger.warning(f"Still off after localization. Attempting final move to {expected_pos}.")
-                # Post localization attempts to go to the entrance.
+                # Tries to go to entrance.
                 if not self.attempt_navigation(expected_pos[0], expected_pos[1], "hallway_final"):
                     return False
             else:
@@ -178,7 +196,6 @@ class MissionControl:
         logger.info("Hallway navigation completed")
 
         return True
-
     def enter_burning_room(self):
         """Enter the burning room if at entrance and orange line detected."""
         # First try to find and align with the orange entrance line
