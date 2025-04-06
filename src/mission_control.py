@@ -7,7 +7,7 @@ import time
 from enum import Enum
 from src.constants import (
     HALLWAY_PATH, ENTRANCE, BURNING_ROOM_ENTRY, BURNING_ROOM_SWEEP, RETURN_PATH,
-    NORTH, POSITION_TOLERANCE
+    NORTH, POSITION_TOLERANCE, BLOCK_SIZE, EAST, WEST, SOUTH
 )
 
 logger = logging.getLogger("mission")
@@ -28,9 +28,9 @@ class MissionState(Enum):
 class MissionControl:
     """Manages the overall mission execution and state."""
 
-    def __init__(self, drive, sensors, navigation, extinguisher, siren):
+    def __init__(self, drive, sensor_system, navigation, extinguisher, siren):
         self.drive = drive
-        self.sensors = sensors
+        self.sensor_system = sensor_system
         self.navigation = navigation
         self.extinguisher = extinguisher
         self.siren = siren
@@ -80,16 +80,80 @@ class MissionControl:
         self.stop_mission()
 
     def navigate_hallway(self):
-        """Navigate through the hallway to the entrance."""
+        """
+        Navigate through the hallway with the first movement calibrating distance...
+        """
+
         logger.info("Starting hallway navigation")
 
-        for i, (x, y) in enumerate(HALLWAY_PATH[1:], 1):  # Skip first position (start)
+        # Get the first target position (skip start position)
+        first_target_x, first_target_y = HALLWAY_PATH[1]
+
+        # CALIBRATION SECTION - First movement only
+        logger.info(f"Performing calibration on first movement to ({first_target_x}, {first_target_y})")
+
+        # Get initial position
+        start_pos = self.navigation.estimated_position
+
+        # Turn to face the right direction
+        if first_target_x > start_pos[0]:
+            self.drive.turn(EAST)
+        elif first_target_x < start_pos[0]:
+            self.drive.turn(WEST)
+        elif first_target_y > start_pos[1]:
+            self.drive.turn(NORTH)
+        elif first_target_y < start_pos[1]:
+            self.drive.turn(SOUTH)
+
+        # Get initial distance reading if ultrasonic sensor is available
+        initial_distance = None
+        if self.sensor_system.has_ultrasonic:
+            initial_distance = self.sensor_system.get_wall_distance()
+            if initial_distance is not None:
+                logger.info(f"Initial distance to wall: {initial_distance:.1f}cm")
+
+        # Move forward one block with current timing
+        current_forward_time = self.drive.forward_time_per_block
+        logger.info(f"Moving forward one block with current timing ({current_forward_time:.2f}s)")
+        self.drive.advance_blocks(1)
+
+        # Measure distance moved if possible
+        if initial_distance is not None:
+            final_distance = self.sensor_system.get_wall_distance()
+            if final_distance is not None:
+                distance_moved = initial_distance - final_distance
+                expected_distance = BLOCK_SIZE
+
+                logger.info(f"Distance moved: {distance_moved:.1f}cm (expected {expected_distance}cm)")
+
+                # Calculate adjustment factor if we moved a reasonable distance
+                if distance_moved > 5:  # At least 5cm movement
+                    adjustment_factor = expected_distance / distance_moved
+
+                    # Limit extreme adjustments
+                    adjustment_factor = max(0.8, min(1.2, adjustment_factor))
+
+                    # Apply adjustment directly to drive system
+                    new_forward_time = current_forward_time * adjustment_factor
+                    self.drive.forward_time_per_block = new_forward_time
+
+                    logger.info(f"Adjusted forward time: {new_forward_time:.2f}s (factor: {adjustment_factor:.2f})")
+
+        # Update particle positions after first movement
+        self.navigation.update_particles_after_movement(
+            first_target_x - start_pos[0],
+            first_target_y - start_pos[1]
+        )
+
+        # Continue with remaining hallway path (skip the first target since we just went there)
+        for i, (x, y) in enumerate(HALLWAY_PATH[2:], 2):  # Start index at 2
             if not self.check_mission_status():  # Check if time elapsed
                 return False
 
             if not self.attempt_navigation(x, y, "hallway_navigation"):
                 return False
 
+        # The rest of your function remains the same
         current_pos = self.navigation.estimated_position
         expected_pos = HALLWAY_PATH[-1]
 
@@ -136,7 +200,7 @@ class MissionControl:
                 logger.info(f"Successfully navigated to entrance {entrance_pos}")
 
         # Checking for orange line.
-        if not self.sensors.check_for_entrance()[0]:
+        if not self.sensor_system.check_for_entrance()[0]:
             if not self.navigation.align_with_entrance():
                 logger.error("Failed to align with entrance")
                 raise Exception("Couldn't align with entrance.")
@@ -148,7 +212,7 @@ class MissionControl:
 
         # Update Localization
         self.navigation.update_particles_after_movement(0, 1)
-        sensor_data = self.sensors.get_sensor_data()
+        sensor_data = self.sensor_system.get_sensor_data()
         self.navigation.update_particle_weights(sensor_data)
         self.navigation.update_position_estimate()
 
@@ -179,7 +243,7 @@ class MissionControl:
 
         def monitor():
             while self.mission_running:
-                if self.sensors.is_emergency_pressed():
+                if self.sensor_system.is_emergency_pressed():
                     logger.warning("EMERGENCY STOP ACTIVATED")
                     self.stop_mission()
                     break

@@ -24,6 +24,9 @@ class DriveSystem:
         self.left_motor.reset_encoder()
         self.right_motor.reset_encoder()
 
+        self.forward_time_per_block = FORWARD_TIME_PER_BLOCK
+        self.turn_90_time = TURN_90_TIME
+
         # Orientation tracking -- no longer Position Tracking -- Corrected by the navigation class at times.
         self.orientation = NORTH
 
@@ -51,7 +54,7 @@ class DriveSystem:
         logger.debug(f"Advancing {number} blocks")
         self.left_motor.set_dps(MOTOR_DPS)
         self.right_motor.set_dps(MOTOR_DPS)
-        time.sleep(FORWARD_TIME_PER_BLOCK * number)
+        time.sleep(self.forward_time_per_block * number)
         self.reset_motors()
 
     def move_forward_slightly(self, time_seconds=0.5):
@@ -74,7 +77,7 @@ class DriveSystem:
         """Turn left 90 degrees (or multiple of 90) based on tested timing values."""
         logger.debug(f"Turning left {90 * times} degrees")
         self.set_motors_turn_left()
-        time.sleep(TURN_90_TIME * times)
+        time.sleep(self.turn_90_time * times)
         self.reset_motors()
 
         # Update orientation
@@ -92,7 +95,7 @@ class DriveSystem:
         logger.debug(f"Turning right {90 * times} degrees")
         self.left_motor.set_power(MOTOR_POWER)
         self.right_motor.set_power(-MOTOR_POWER)
-        time.sleep(TURN_90_TIME * times)
+        time.sleep(self.turn_90_time * times)
         self.reset_motors()
 
         # Update orientation

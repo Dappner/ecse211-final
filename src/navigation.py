@@ -12,7 +12,7 @@ from src.constants import (
     MCL_MOTION_NOISE, MCL_SENSOR_NOISE, MCL_RESAMPLING_THRESHOLD, BLOCK_SIZE,
     EAST, NORTH, WEST, SOUTH, DIRECTION_VECTORS, VALID_NEIGHBORS, GRID_MAP,
     GRID_HEIGHT, GRID_WIDTH, COLOR_ORANGE, COLOR_RED, COLOR_GREEN, COLOR_PURPLE,
-    COLOR_YELLOW, COLOR_WHITE, ALIGNMENT_TOLERANCE
+    COLOR_YELLOW, COLOR_WHITE, ALIGNMENT_TOLERANCE, COLOR_BLACK, BURNING_ROOM_ENTRY
 )
 
 logger = logging.getLogger("navigation")
@@ -41,11 +41,11 @@ class Navigation:
 
     def __init__(self, drive_system, sensor_system):
         """
-        Initialize navigation system.
+        Initialize navigation system with improved localization capabilities.
 
         Args:
-            drive_system: DriveSystem object for movement
-            sensor_system: SensorSystem object for sensing
+            drive_system: DriveSystem object for movement control
+            sensor_system: SensorSystem object for environmental sensing
         """
         self.drive = drive_system
         self.sensors = sensor_system
@@ -53,59 +53,145 @@ class Navigation:
         # Position tracking
         self.estimated_position = [0, 0]  # [x, y] in grid coordinates
         self.position_confidence = 1.0  # 0.0 to 1.0
+        self.expected_orientation = NORTH  # Expected orientation based on commands
 
         # Monte Carlo Localization
         self.particles = []
         self.initialize_particles()
 
-        # Movement history for backtracking
-        self.movement_history = deque(maxlen=10)
+        # Tracking particle dispersion to detect kidnapped robot problem
+        self.dispersion_threshold = 0.8  # Threshold for particle dispersion warning
 
-        # Last known valid position
+        # Grid line detection
+        self.last_grid_line_detection = None  # Last time we detected a grid line
+        self.grid_line_confidence = 0.0  # Confidence in grid alignment
+
+        # Path planning
+        self.movement_history = deque(maxlen=10)
         self.last_valid_position = [0, 0]
         self.last_valid_orientation = NORTH
+        self.current_path = []
 
-        # Wall following state
+        # Recovery strategies
+        self.recovery_mode = False
+        self.recovery_attempts = 0
+        self.max_recovery_attempts = 3
+
+        # Wall following behavior
         self.wall_following = False
         self.wall_side = None  # 'left' or 'right'
 
-        # Path planning
-        self.current_path = []
+        # Room identification
+        self.current_room_type = "unknown"
+        self.room_confidence = 0.0
+
+        # Add a history of position estimates for smoothing
+        self.position_history = deque(maxlen=5)
+        for _ in range(5):
+            self.position_history.append([0, 0])
 
         logger.info("Enhanced navigation system initialized")
 
-    def initialize_particles(self):
-        """Initialize particles for Monte Carlo Localization."""
+    def initialize_particles(self, num_particles=None, position=None, spread=0.2):
+        """
+        Initialize particles for Monte Carlo Localization with improved distribution.
+
+        Args:
+            num_particles: Number of particles to generate (default: MCL_PARTICLE_COUNT)
+            position: Center position [x, y] for particles (default: current estimate)
+            spread: Standard deviation for Gaussian distribution of particles
+        """
+        if num_particles is None:
+            num_particles = MCL_PARTICLE_COUNT
+
+        if position is None:
+            position = self.estimated_position
+
         self.particles = []
-        for _ in range(MCL_PARTICLE_COUNT):
-            # All particles start at the origin (0,0) facing NORTH
-            self.particles.append(Particle(0, 0, NORTH, 1.0))
-        logger.debug(f"Initialized {MCL_PARTICLE_COUNT} particles at origin")
+
+        # Calculate how many particles to allocate to each orientation
+        particles_per_orientation = num_particles // 4
+        remaining = num_particles - (particles_per_orientation * 4)
+
+        orientations = [NORTH, EAST, SOUTH, WEST]
+
+        # Current orientation gets more particles for better precision
+        current_orientation_idx = orientations.index(self.drive.orientation)
+
+        # Distribute particles with preference to current orientation
+        orientation_counts = [particles_per_orientation] * 4
+        orientation_counts[current_orientation_idx] += remaining
+
+        for i, orientation in enumerate(orientations):
+            count = orientation_counts[i]
+            for _ in range(count):
+                # Use Gaussian distribution around current position estimate
+                x = random.gauss(position[0], spread)
+                y = random.gauss(position[1], spread)
+
+                # Constrain to valid grid positions
+                x = max(0, min(GRID_WIDTH - 1, x))
+                y = max(0, min(GRID_HEIGHT - 1, y))
+
+                # Higher initial weight to particles with current orientation
+                weight = 1.5 if orientation == self.drive.orientation else 1.0
+
+                self.particles.append(Particle(x, y, orientation, weight))
+
+        # Normalize weights
+        self._normalize_weights()
+
+        logger.debug(f"Initialized {num_particles} particles around position {position}")
+
+    def _normalize_weights(self):
+        """Normalize particle weights to sum to 1.0"""
+        total_weight = sum(p.weight for p in self.particles)
+        if total_weight > 0:
+            for p in self.particles:
+                p.weight /= total_weight
 
     def update_particles_after_movement(self, dx, dy, rotation=None):
         """
-        Update particle positions after movement.
+        Update particle positions after movement with improved noise model.
 
         Args:
             dx: Change in x position
             dy: Change in y position
             rotation: New orientation if turned, or None if no turn
         """
-        for particle in self.particles:
-            # Apply motion model with noise
-            noise_x = random.gauss(0, MCL_MOTION_NOISE)
-            noise_y = random.gauss(0, MCL_MOTION_NOISE)
+        if not self.particles:
+            self.initialize_particles()
+            return
 
+        # Calculate average position before update for comparison
+        prev_x = sum(p.x * p.weight for p in self.particles)
+        prev_y = sum(p.y * p.weight for p in self.particles)
+
+        # Track expected orientation
+        if rotation:
+            self.expected_orientation = rotation
+
+        # Update each particle with motion model and noise
+        for particle in self.particles:
+            # Add noise proportional to movement distance
+            move_distance = math.sqrt(dx ** 2 + dy ** 2)
+            # More movement = more uncertainty
+            noise_factor = max(0.05, min(0.3, move_distance * 0.1))
+
+            noise_x = random.gauss(0, MCL_MOTION_NOISE * noise_factor)
+            noise_y = random.gauss(0, MCL_MOTION_NOISE * noise_factor)
+
+            # Update orientation if specified
             if rotation:
-                # If a rotation occurred, update orientation
-                particle.orientation = rotation
-                # Add small chance of wrong orientation after turn
+                # Small chance of orientation error during turns
                 if random.random() < 0.05:  # 5% chance of error
                     orientations = [NORTH, EAST, SOUTH, WEST]
                     orientations.remove(rotation)
                     particle.orientation = random.choice(orientations)
+                else:
+                    particle.orientation = rotation
 
-            # Update position based on orientation and add noise
+            # Update position based on orientation
             if particle.orientation == NORTH:
                 particle.y += dy + noise_y
                 particle.x += noise_x
@@ -119,67 +205,177 @@ class Navigation:
                 particle.x -= dx + noise_x
                 particle.y += noise_y
 
-        logger.debug("Updated particles after movement")
+            # Constrain particles to valid map area
+            particle.x = max(0, min(GRID_WIDTH - 1, particle.x))
+            particle.y = max(0, min(GRID_HEIGHT - 1, particle.y))
+
+            # Reduce weight if particle moved to invalid position
+            if not self._is_valid_position(int(round(particle.x)), int(round(particle.y))):
+                particle.weight *= 0.1
+
+        # Calculate new average position
+        self._normalize_weights()
+        new_x = sum(p.x * p.weight for p in self.particles)
+        new_y = sum(p.y * p.weight for p in self.particles)
+
+        # Check if movement was realistic
+        expected_dist = math.sqrt(dx ** 2 + dy ** 2)
+        actual_dist = math.sqrt((new_x - prev_x) ** 2 + (new_y - prev_y) ** 2)
+
+        # If movement discrepancy is too large, reduce confidence
+        if abs(actual_dist - expected_dist) > 0.5 and expected_dist > 0.1:
+            self.position_confidence *= 0.8
+            logger.warning(
+                f"Unexpected particle movement detected. Expected: {expected_dist:.2f}, Actual: {actual_dist:.2f}")
+
+        logger.debug(f"Updated particles after movement dx={dx}, dy={dy}, rotation={rotation}")
 
     def update_particle_weights(self, sensor_measurements):
         """
-        Update particle weights based on sensor measurements.
+        Update particle weights based on sensor measurements with improved weighting.
 
         Args:
             sensor_measurements: Dict of sensor readings
         """
-        # Get wall distance measurement
+        if not self.particles:
+            self.initialize_particles()
+            return
+
+        # Extract sensor data
         wall_distance = sensor_measurements.get('wall_distance')
         left_color = sensor_measurements.get('left_color')
         right_color = sensor_measurements.get('right_color')
 
-        for particle in self.particles:
-            # Start with current weight
-            w = particle.weight
+        # Get current orientation from drive system
+        current_orientation = self.drive.orientation
 
-            # Check if particle is in valid position
-            px, py = int(particle.x), int(particle.y)
+        # Check for significant disparity between expected and actual orientation
+        if self.expected_orientation != current_orientation:
+            logger.warning(f"Orientation mismatch: expected {self.expected_orientation}, got {current_orientation}")
+            # Reduce confidence if orientations don't match
+            self.position_confidence *= 0.7
+
+        total_weight = 0
+        for particle in self.particles:
+            # Start with current weight, but apply small decay to prevent overconfidence
+            w = particle.weight * 0.95
+
+            # Get integer grid position
+            px, py = int(round(particle.x)), int(round(particle.y))
+
+            # Check if position is valid
             if not self._is_valid_position(px, py):
-                particle.weight = 0.01  # Very low weight for invalid positions
+                particle.weight = 0.001  # Very low but non-zero weight
                 continue
 
+            # Calculate weight based on color sensing
+            expected_color = self._expected_color(px, py)
+            if expected_color and (left_color or right_color):
+                # Check if either sensor matches expected color
+                color_match = (left_color == expected_color or right_color == expected_color)
+
+                if color_match:
+                    w *= 1.5  # Boost weight for color match
+                else:
+                    w *= 0.7  # Reduce weight for color mismatch
+
+                # Special case for boundary detection (black lines)
+                if left_color == COLOR_BLACK or right_color == COLOR_BLACK:
+                    # Check if particle is near grid line
+                    x_frac = abs(particle.x - round(particle.x))
+                    y_frac = abs(particle.y - round(particle.y))
+
+                    if x_frac < 0.1 or y_frac < 0.1:
+                        w *= 2.0  # Significant boost for grid line alignment
+                        self.grid_line_confidence = 0.9
+                        self.last_grid_line_detection = time.time()
+                    else:
+                        w *= 0.3  # Significant penalty for detecting grid line in wrong position
+
             # Update weight based on wall distance if available
-            if wall_distance is not None:
+            if wall_distance is not None and particle.orientation in DIRECTION_VECTORS:
                 expected_distance = self._expected_wall_distance(px, py, particle.orientation)
                 if expected_distance is not None:
                     # Calculate weight based on difference between expected and measured
                     distance_diff = abs(wall_distance - expected_distance)
-                    w *= math.exp(-distance_diff ** 2 / (2 * MCL_SENSOR_NOISE ** 2))
 
-            # Update weight based on colors
-            if left_color is not None and right_color is not None:
-                expected_color = self._expected_color(px, py)
-                if expected_color is not None:
-                    # If colors match expectation, increase weight
-                    if left_color == expected_color or right_color == expected_color:
-                        w *= 1.5
+                    # Using Gaussian model for distance measurement
+                    distance_weight = math.exp(-distance_diff ** 2 / (2 * MCL_SENSOR_NOISE ** 2))
+
+                    # More weight to distance measurements when confidence is low
+                    if self.position_confidence < 0.5:
+                        w *= (0.2 + 0.8 * distance_weight)  # Blend with existing weight
                     else:
-                        w *= 0.5
+                        w *= (0.5 + 0.5 * distance_weight)
 
-            particle.weight = max(0.001, w)  # Ensure minimum weight
+            # Orientation consistency check
+            if particle.orientation != current_orientation:
+                w *= 0.8  # Penalize particles with wrong orientation
 
-        # Normalize weights
-        total_weight = sum(p.weight for p in self.particles)
+            particle.weight = max(0.0001, min(w, 5.0))  # Clamp weight to reasonable range
+            total_weight += particle.weight
+
+        # Normalize weights if total is non-zero
         if total_weight > 0:
-            for particle in self.particles:
-                particle.weight /= total_weight
+            for p in self.particles:
+                p.weight /= total_weight
 
-        logger.debug("Updated particle weights based on sensor measurements")
+        # Calculate dispersion to detect localization problems
+        self._calculate_dispersion()
+
+        # Check grid line confidence decay over time
+        if self.last_grid_line_detection:
+            time_since_grid = time.time() - self.last_grid_line_detection
+            if time_since_grid > 5.0:  # 5 seconds since last grid line
+                self.grid_line_confidence *= 0.9  # Decay confidence
+
+        logger.debug(f"Updated particle weights based on sensor data")
+
+    def _calculate_dispersion(self):
+        """Calculate particle dispersion to detect localization problems"""
+        if not self.particles:
+            return
+
+        # Calculate weighted mean position
+        mean_x = sum(p.x * p.weight for p in self.particles)
+        mean_y = sum(p.y * p.weight for p in self.particles)
+
+        # Calculate variance
+        var_x = sum(((p.x - mean_x) ** 2) * p.weight for p in self.particles)
+        var_y = sum(((p.y - mean_y) ** 2) * p.weight for p in self.particles)
+
+        # Calculate total dispersion (variance)
+        dispersion = var_x + var_y
+
+        # Update confidence based on dispersion
+        self.position_confidence = max(0.1, min(1.0, 1.0 - dispersion))
+
+        # Log warning if dispersion is high
+        if dispersion > self.dispersion_threshold:
+            logger.warning(f"High particle dispersion detected: {dispersion:.3f}. Low confidence in position estimate.")
+
+            # If dispersion is extremely high, consider reinitializing
+            if dispersion > self.dispersion_threshold * 2 and self.position_confidence < 0.3:
+                logger.warning("Extreme position uncertainty detected. Consider relocalizing.")
+                self.recovery_mode = True
 
     def resample_particles(self):
-        """Resample particles based on weights using importance sampling."""
-        # Calculate effective sample size to determine if resampling is needed
-        weights = [p.weight for p in self.particles]
-        effective_size = 1.0 / sum(w ** 2 for w in weights)
+        """
+        Improved resampling algorithm with adaptive resampling
+        based on effective sample size.
+        """
+        if not self.particles:
+            self.initialize_particles()
+            return
 
-        # Only resample if effective size is below threshold
-        if effective_size < MCL_PARTICLE_COUNT * MCL_RESAMPLING_THRESHOLD:
-            # Create cumulative sum of weights for faster sampling
+        # Calculate effective sample size
+        weights = [p.weight for p in self.particles]
+        n_eff = 1.0 / sum(w * w for w in weights)
+        threshold = MCL_PARTICLE_COUNT * MCL_RESAMPLING_THRESHOLD
+
+        # Only resample if effective sample size is below threshold
+        if n_eff < threshold:
+            # Create cumulative sum of weights
             cum_weights = []
             cum_sum = 0
             for w in weights:
@@ -194,74 +390,91 @@ class Navigation:
 
             for m in range(MCL_PARTICLE_COUNT):
                 u = offset + m * step
-                while u > cum_weights[i]:
+                while i < len(cum_weights) - 1 and u > cum_weights[i]:
                     i += 1
 
-                # Create new particle based on selected particle
+                # Create new particle based on selected particle with small jitter
                 old = self.particles[i]
-                new_particles.append(Particle(old.x, old.y, old.orientation, 1.0 / MCL_PARTICLE_COUNT))
+                jitter_x = random.gauss(0, 0.02)  # Small position noise during resampling
+                jitter_y = random.gauss(0, 0.02)
+
+                new_particle = Particle(
+                    old.x + jitter_x,
+                    old.y + jitter_y,
+                    old.orientation,
+                    1.0 / MCL_PARTICLE_COUNT
+                )
+
+                # Ensure particle is within bounds
+                new_particle.x = max(0, min(GRID_WIDTH - 1, new_particle.x))
+                new_particle.y = max(0, min(GRID_HEIGHT - 1, new_particle.y))
+
+                new_particles.append(new_particle)
 
             self.particles = new_particles
-            logger.debug("Resampled particles")
+            logger.debug(f"Resampled particles (effective sample size: {n_eff:.1f}/{MCL_PARTICLE_COUNT})")
+        else:
+            logger.debug(f"Skipped resampling (effective sample size: {n_eff:.1f}/{threshold:.1f})")
 
     def update_position_estimate(self):
-        """Update estimated position based on particle distribution."""
+        """Update estimated position based on particle distribution with improved filtering."""
         if not self.particles:
+            self.initialize_particles()
             return
 
-        # Calculate weighted average
+        # Calculate weighted average position
         total_x = 0
         total_y = 0
         total_weight = 0
+        orientation_counts = {NORTH: 0, EAST: 0, SOUTH: 0, WEST: 0}
 
         for p in self.particles:
             total_x += p.x * p.weight
             total_y += p.y * p.weight
             total_weight += p.weight
 
+            if p.orientation in orientation_counts:
+                orientation_counts[p.orientation] += p.weight
+
         if total_weight > 0:
             avg_x = total_x / total_weight
             avg_y = total_y / total_weight
 
-            # Find most common orientation
-            orientation_counts = {
-                NORTH: 0,
-                EAST: 0,
-                SOUTH: 0,
-                WEST: 0
-            }
+            # Store in history for temporal smoothing
+            self.position_history.append([avg_x, avg_y])
 
-            for p in self.particles:
-                if p.orientation in orientation_counts:
-                    orientation_counts[p.orientation] += p.weight
-                else:
-                    logger.warning(f"Particle found with invalid orientation: {p.orientation}")
+            # Apply temporal smoothing using weighted average of recent positions
+            # More recent positions have higher weight
+            smoothed_x = 0
+            smoothed_y = 0
+            total_weight = 0
 
-            if not any(orientation_counts.values()):
-                logger.warning("Could not determine estimated orientation from particles.")
-                estimated_orientation = self.drive.orientation  # Fallback to drive system's current orientation
-            else:
-                estimated_orientation = max(orientation_counts, key=orientation_counts.get)
+            for i, pos in enumerate(self.position_history):
+                weight = (i + 1) / sum(range(1, len(self.position_history) + 1))
+                smoothed_x += pos[0] * weight
+                smoothed_y += pos[1] * weight
+                total_weight += weight
 
-            # Update estimated position
-            self.estimated_position = [avg_x, avg_y]
+            if total_weight > 0:
+                # Update estimated position with smoothed value
+                self.estimated_position = [smoothed_x, smoothed_y]
 
-            # Calculate position confidence based on particle dispersion
-            variance_x = sum((p.x - avg_x) ** 2 * p.weight for p in self.particles) / total_weight
-            variance_y = sum((p.y - avg_y) ** 2 * p.weight for p in self.particles) / total_weight
-            std_dev = math.sqrt(variance_x + variance_y)
+                # Determine most likely orientation
+                if orientation_counts:
+                    most_likely_orientation = max(orientation_counts.items(), key=lambda x: x[1])[0]
 
-            # Map standard deviation to confidence (higher std_dev = lower confidence)
-            self.position_confidence = max(0.0, min(1.0, 1.0 - std_dev / 2.0))
+                    # Only update drive orientation if confidence is high enough
+                    if self.position_confidence > 0.7 and most_likely_orientation != self.drive.orientation:
+                        logger.info(
+                            f"Correcting orientation from {self.drive.orientation} to {most_likely_orientation}")
+                        self.drive.orientation = most_likely_orientation
 
-            # If confidence is high enough, update drive system position
-            if self.position_confidence > 0.7:
-                if self.drive.orientation != estimated_orientation:
-                    logger.info(f"Correcting orientation from {self.drive.orientation} to {estimated_orientation}")
-                    self.drive.orientation = estimated_orientation
+                # Update last valid position if confidence is high
+                if self.position_confidence > 0.6:
+                    self.last_valid_position = self.estimated_position.copy()
+                    self.last_valid_orientation = self.drive.orientation
 
-            logger.debug(f"Updated position estimate to {self.estimated_position} "
-                         f"with confidence {self.position_confidence:.2f}")
+                logger.debug(f"Updated position: {self.estimated_position}, confidence: {self.position_confidence:.2f}")
 
     def _expected_wall_distance(self, x, y, orientation):
         """
@@ -270,7 +483,7 @@ class Navigation:
         Args:
             x: Grid x coordinate
             y: Grid y coordinate
-            orientation: Facing direction
+            orientation: Direction facing
 
         Returns:
             float: Expected distance to wall in cm, or None if unknown
@@ -278,20 +491,39 @@ class Navigation:
         if not (0 <= x < GRID_WIDTH and 0 <= y < GRID_HEIGHT):
             return None
 
-        # Calculate distance to wall based on map
-        distance = 0
-        dx, dy = DIRECTION_VECTORS[orientation]
+        # Get direction vector
+        dx, dy = DIRECTION_VECTORS.get(orientation, (0, 0))
+        if dx == 0 and dy == 0:
+            return None
 
+        # Count cells until wall or edge
+        distance = 0
         current_x, current_y = x, y
-        while (0 <= current_x < GRID_WIDTH and
-               0 <= current_y < GRID_HEIGHT and
-               GRID_MAP[current_y][current_x] > 0):
-            current_x += dx
-            current_y += dy
+
+        while True:
+            next_x, next_y = current_x + dx, current_y + dy
+
+            # Check if next position is valid
+            if not (0 <= next_x < GRID_WIDTH and 0 <= next_y < GRID_HEIGHT):
+                # Hit map boundary
+                break
+
+            # Check if next position is an obstacle/wall (value 0 in grid map)
+            if next_x < len(GRID_MAP[0]) and next_y < len(GRID_MAP):
+                if GRID_MAP[int(next_y)][int(next_x)] == 0:
+                    break
+
+            # Move to next position
+            current_x, current_y = next_x, next_y
             distance += 1
 
-        # Convert to cm
-        return distance * BLOCK_SIZE
+            # Limit search distance
+            if distance > max(GRID_WIDTH, GRID_HEIGHT):
+                return None
+
+        # Add fractional distance and convert to cm
+        fractional_dist = math.sqrt((current_x - x) ** 2 + (current_y - y) ** 2)
+        return fractional_dist * BLOCK_SIZE
 
     def _expected_color(self, x, y):
         """
@@ -325,53 +557,137 @@ class Navigation:
                 0 <= y < GRID_HEIGHT and
                 GRID_MAP[y][x] > 0)
 
-    def localize(self):
+    def localize(self, full_rotation=False):
         """
-        Perform active localization to determine position.
-        This is called when position confidence is low.
+        Perform active localization to determine position with improved sensing.
+
+        Args:
+            full_rotation: Whether to perform a full 360° rotation for better localization
+
+        Returns:
+            bool: True if localization successful (high confidence)
         """
-        logger.info("Performing active localization")
+        logger.info(f"Starting active localization (confidence: {self.position_confidence:.2f})")
+
+        # Store initial orientation to return to it
+        initial_orientation = self.drive.orientation
+
+        # First check for grid lines or other landmarks
+        self._check_for_landmarks()
 
         # Get current sensor data
         sensor_data = self.sensors.get_sensor_data()
+        self.update_particle_weights(sensor_data)
 
-        # Update particles based on sensor data
+        # If grid line detected recently, try to align with it precisely
+        if self.last_grid_line_detection and time.time() - self.last_grid_line_detection < 2.0:
+            self._align_with_grid_lines()
+
+        # If confidence is still low, perform active sensing
+        if self.position_confidence < 0.5 or full_rotation:
+            logger.info("Performing active sensing to improve localization")
+
+            # Take initial readings
+            sensor_data = self.sensors.get_sensor_data()
+            self.update_particle_weights(sensor_data)
+
+            # Perform rotation to gather sensor data from different directions
+            orientations = [NORTH, EAST, SOUTH, WEST]
+            if full_rotation:
+                # Do a full 360° rotation
+                for direction in orientations:
+                    if direction != self.drive.orientation:
+                        self.drive.turn(direction)
+                        time.sleep(0.3)  # Pause to get stable readings
+                        sensor_data = self.sensors.get_sensor_data()
+                        self.update_particle_weights(sensor_data)
+                        self.resample_particles()
+            else:
+                # Just look left and right
+                current_idx = orientations.index(self.drive.orientation)
+                left_idx = (current_idx - 1) % 4
+                right_idx = (current_idx + 1) % 4
+
+                # Look left
+                self.drive.turn(orientations[left_idx])
+                time.sleep(0.3)
+                sensor_data = self.sensors.get_sensor_data()
+                self.update_particle_weights(sensor_data)
+
+                # Look right (from original orientation)
+                self.drive.turn(orientations[right_idx])
+                time.sleep(0.3)
+                sensor_data = self.sensors.get_sensor_data()
+                self.update_particle_weights(sensor_data)
+
+            # Return to original orientation
+            self.drive.turn(initial_orientation)
+            time.sleep(0.3)
+
+        # Final update after sensing
+        sensor_data = self.sensors.get_sensor_data()
         self.update_particle_weights(sensor_data)
         self.resample_particles()
         self.update_position_estimate()
 
-        # If confidence is still low, perform movement to gather more data
-        if self.position_confidence < 0.5:
-            logger.info("Low position confidence, performing movement for localization")
+        # Check for grid alignment one more time
+        self._check_for_landmarks()
 
-            # Rotation provides lots of information for localization
-            self.drive.turn_slightly_left(0.2)
-            time.sleep(0.2)
-            sensor_data = self.sensors.get_sensor_data()
-            self.update_particle_weights(sensor_data)
+        # Final update after all measurements
+        self.update_position_estimate()
 
-            self.drive.turn_slightly_right(0.4)
-            time.sleep(0.2)
-            sensor_data = self.sensors.get_sensor_data()
-            self.update_particle_weights(sensor_data)
+        logger.info(
+            f"Localization complete - Position: ({self.estimated_position[0]:.2f}, {self.estimated_position[1]:.2f}), "
+            f"Confidence: {self.position_confidence:.2f}")
 
-            self.drive.turn_slightly_left(0.2)
+        return self.position_confidence > 0.6
 
-            # Resample and update after movements
-            self.resample_particles()
-            self.update_position_estimate()
+    def _check_for_landmarks(self):
+        """Check for landmarks to improve localization"""
+        # Check for grid lines
+        on_black = self.sensors.is_on_black_line()
+        if on_black[0]:  # If black line detected
+            self.last_grid_line_detection = time.time()
+            self.grid_line_confidence = 0.9
 
-        # Report localization results
-        logger.info(f"Localization complete - Estimated position: {self.estimated_position}, "
-                    f"Confidence: {self.position_confidence:.2f}")
+            # Update particle weights to favor particles near grid lines
+            for p in self.particles:
+                # Check if particle is near a grid line (integer position)
+                x_near_line = abs(p.x - round(p.x)) < 0.1
+                y_near_line = abs(p.y - round(p.y)) < 0.1
 
-        # Save position if confidence is high
-        if self.position_confidence > 0.7:
-            self.last_valid_position = self.estimated_position.copy()
-            self.last_valid_orientation = self.drive.orientation
+                if x_near_line or y_near_line:
+                    p.weight *= 2.0  # Boost weight for particles near grid lines
+                else:
+                    p.weight *= 0.3  # Reduce weight for others
 
-        return self.position_confidence > 0.7
+            # Normalize weights
+            self._normalize_weights()
+            logger.info(f"Grid line detected! Adjusted particle weights.")
+            return True
 
+        # Check for entrance line (orange)
+        found_orange, _ = self.sensors.check_for_entrance()
+        if found_orange:
+            # If orange detected, we're likely near the entrance
+            entrance_pos = BURNING_ROOM_ENTRY
+
+            # Update particles to concentrate near entrance
+            for p in self.particles:
+                dist_to_entrance = math.sqrt((p.x - entrance_pos[0]) ** 2 +
+                                             (p.y - entrance_pos[1]) ** 2)
+
+                if dist_to_entrance < 1.5:  # Within 1.5 grid cells of entrance
+                    p.weight *= 3.0  # Significantly boost weight
+                else:
+                    p.weight *= 0.2  # Significantly reduce weight
+
+            # Normalize weights
+            self._normalize_weights()
+            logger.info(f"Entrance line detected! Adjusted particle weights.")
+            return True
+
+        return False
     def align_with_grid(self):
         """Align robot with black grid lines using both color sensors."""
         logger.info("Aligning with grid...")
@@ -890,3 +1206,13 @@ class Navigation:
 
         logger.info("No fire detected after search pattern")
         return False, "NONE"
+
+    def adjust_drive_timing(self, forward_factor=None, turn_factor=None):
+        """Adjust drive system timing parameters based on calibration."""
+        if forward_factor:
+            self.drive.forward_time_per_block *= forward_factor
+            logger.info(f"Adjusted forward time to {self.drive.forward_time_per_block:.3f}s")
+
+        if turn_factor:
+            self.drive.turn_90_time *= turn_factor
+            logger.info(f"Adjusted turn time to {self.drive.turn_90_time:.3f}s")

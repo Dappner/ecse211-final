@@ -1,10 +1,6 @@
 """
 Centralized constants and tuning of constant during run time.
 """
-
-# ======== Relevant Constants for Tuning =========
-
-
 # ============= HARDWARE Ports =============
 # Motor ports
 LEFT_MOTOR_PORT = "B"
@@ -32,17 +28,14 @@ DROPPER_MOTOR_DPS = 360
 
 POSITION_TOLERANCE = 0.6
 
-
-
 # ============= Environment Constants =============
-BLOCK_SIZE = 24  # cm per grid block
+BLOCK_SIZE = 25  # cm per grid block
 ALIGNMENT_TOLERANCE = 5  # cm tolerance for wall distance verification
 
 # ============= Sampling Constants =============
 NB_COLOR_SAMPLING = 20  # Number of samples for color sensor readings
 
 # ============= Map / Grid Constants ============= (x,y)
-
 GRID_WIDTH = 5
 GRID_HEIGHT = 5
 
@@ -120,61 +113,3 @@ COLOR_GREEN = "green"
 COLOR_YELLOW = "yellow"
 COLOR_PURPLE = "purple"
 COLOR_WHITE = "white"
-
-
-class RuntimeConstants:
-    """
-    Runtime-adjustable constants that can be tuned during program execution.
-    Use this class when you need to adjust parameters during runtime based on calibration.
-    """
-
-    def __init__(self):
-        # Initialize with default values from the module constants
-        self.motor_power = MOTOR_POWER
-        self.motor_dps = MOTOR_DPS
-        self.speed_modifier = SPEED_MODIFIER
-        self.forward_time_per_block = FORWARD_TIME_PER_BLOCK
-        self.turn_90_time = TURN_90_TIME
-
-    def adjust_power(self, new_power):
-        """Adjust motor power constant."""
-        self.motor_power = new_power
-        return self.motor_power
-
-    def adjust_speed(self, new_dps):
-        """Adjust motor speed in degrees per second."""
-        self.motor_dps = new_dps
-        return self.motor_dps
-
-    def adjust_forward_time(self, new_time):
-        """Adjust time required to move one block forward."""
-        self.forward_time_per_block = new_time
-        return self.forward_time_per_block
-
-    def adjust_turn_time(self, new_time):
-        """Adjust time required for a 90-degree turn."""
-        self.turn_90_time = new_time
-        return self.turn_90_time
-
-    def calibrate_from_test(self, test_results):
-        """
-        Adjust parameters based on test results.
-
-        Args:
-            test_results: Dictionary with calibration results
-        """
-        if 'motor_power' in test_results:
-            self.motor_power = test_results['motor_power']
-
-        if 'forward_time' in test_results:
-            self.forward_time_per_block = test_results['forward_time']
-
-        if 'turn_time' in test_results:
-            self.turn_90_time = test_results['turn_time']
-
-        return {
-            'motor_power': self.motor_power,
-            'forward_time_per_block': self.forward_time_per_block,
-            'turn_90_time': self.turn_90_time
-        }
-

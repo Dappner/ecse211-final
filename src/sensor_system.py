@@ -26,6 +26,7 @@ class SensorSystem:
             touch_sensor: Touch sensor object (optional)
         """
         # Initialize sensors
+        self.black_threshold = None
         self.left_color = left_color_sensor
         self.right_color = right_color_sensor
         self.touch_sensor = touch_sensor
@@ -56,9 +57,131 @@ class SensorSystem:
 
         # Sensor calibration values
         self.ultrasonic_offset = 0  # Adjustment for ultrasonic readings
+        self.calibrate_color_thresholds()
         self.color_confidence_threshold = 0.6  # Minimum confidence for color detection
 
         logger.info("Sensor system initialized")
+
+    def calibrate_color_thresholds(self):
+        """Calibrate color detection thresholds based on environment."""
+        # Essentially analyzes how much light there is to come up with a realistic black threshold
+        # Ensure the color sensors are not on black line during this calibration....l
+        samples = 10
+        left_samples = []
+        right_samples = []
+
+        logger.info("Calibrating color detection thresholds...")
+
+        for _ in range(samples):
+            left_rgb = self.left_color.get_rgb()
+            right_rgb = self.right_color.get_rgb()
+
+            if left_rgb and len(left_rgb) == 3:
+                left_samples.append(sum(left_rgb))
+
+            if right_rgb and len(right_rgb) == 3:
+                right_samples.append(sum(right_rgb))
+
+            time.sleep(0.1)
+
+        # Calculate statistics
+        if left_samples:
+            left_avg = sum(left_samples) / len(left_samples)
+            logger.info(f"Left color sensor average brightness: {left_avg:.1f}")
+
+        if right_samples:
+            right_avg = sum(right_samples) / len(right_samples)
+            logger.info(f"Right color sensor average brightness: {right_avg:.1f}")
+
+        # Adjust black threshold if needed
+        if left_samples and right_samples:
+            # Set black threshold as 40% of average brightness
+            avg_brightness = (sum(left_samples) + sum(right_samples)) / (len(left_samples) + len(right_samples))
+            self.black_threshold = int(avg_brightness * 0.4)
+            logger.info(f"Black detection threshold set to: {self.black_threshold}")
+
+    def track_grid_line(self, samples=5):
+        """
+        Track a grid line's position relative to the sensors over multiple readings.
+        Useful for detecting whether the robot is approaching, crossing, or moving away from a line.
+
+        Returns:
+            dict: Line tracking information
+        """
+        results = []
+
+        for _ in range(samples):
+            on_line, position = self.is_on_black_line()
+            results.append((on_line, position))
+            time.sleep(0.05)
+
+        # Count occurrences
+        on_line_count = sum(1 for r in results if r[0])
+        positions = [r[1] for r in results if r[0]]
+        position_counts = {}
+
+        for pos in positions:
+            if pos in position_counts:
+                position_counts[pos] += 1
+            else:
+                position_counts[pos] = 1
+
+        # Analyze pattern
+        line_status = {
+            'detected': on_line_count > 0,
+            'confidence': on_line_count / samples,
+            'positions': position_counts
+        }
+
+        # Determine if crossing, approaching, or moving away
+        if len(results) >= 3:
+            # Simple pattern analysis
+            if not results[0][0] and results[-1][0]:
+                line_status['pattern'] = 'approaching'
+            elif results[0][0] and not results[-1][0]:
+                line_status['pattern'] = 'moving_away'
+            elif all(r[0] for r in results):
+                line_status['pattern'] = 'on_line'
+            else:
+                line_status['pattern'] = 'mixed'
+
+        return line_status
+
+    def get_line_alignment_suggestion(self):
+        """
+        Analyze sensor readings to suggest alignment corrections.
+
+        Returns:
+            tuple: (needs_adjustment, adjustment_type, confidence)
+                - needs_adjustment: Boolean indicating if adjustment is needed
+                - adjustment_type: One of "forward", "backward", "left", "right", or None
+                - confidence: Confidence level for the suggestion (0.0-1.0)
+        """
+        line_info = self.track_grid_line(samples=3)
+
+        # No line detected
+        if not line_info['detected']:
+            return True, "forward", 0.8  # Move forward to find a line
+
+        # Calculate most common position
+        if line_info['positions']:
+            positions = line_info['positions']
+            most_common = max(positions, key=positions.get)
+            confidence = positions[most_common] / sum(positions.values())
+
+            if most_common == "left":
+                return True, "right", confidence  # Turn right to center
+            elif most_common == "right":
+                return True, "left", confidence  # Turn left to center
+            elif most_common == "both":
+                if line_info.get('pattern') == 'approaching':
+                    return True, "forward", confidence  # Keep moving forward to cross line
+                elif line_info.get('pattern') == 'moving_away':
+                    return True, "backward", confidence  # Move backward to get back on line
+                else:
+                    return False, None, confidence  # Already aligned
+
+        return False, None, 0.5
 
     def get_color_left(self):
         """
@@ -162,6 +285,7 @@ class SensorSystem:
         except Exception as e:
             logger.error(f"Error in right color detection: {e}")
             return None
+
     def _calculate_color_confidence(self, rgb_values, color_match):
         """
         Calculate confidence of color detection based on consistency.
@@ -197,6 +321,21 @@ class SensorSystem:
         confidence = max(0, min(1, 1 - (total_variance / max_expected_variance)))
 
         return confidence
+
+    def get_brightness_values(self):
+        """
+        Get brightness values (sum of RGB) from both color sensors.
+
+        Returns:
+            tuple: (left_brightness, right_brightness)
+        """
+        left_rgb = self.left_color.get_rgb()
+        right_rgb = self.right_color.get_rgb()
+
+        left_brightness = sum(left_rgb) if left_rgb else 0
+        right_brightness = sum(right_rgb) if right_rgb else 0
+
+        return left_brightness, right_brightness
 
     def check_color_match(self):
         """Returns Tuple (bool Match, left color, right color)"""
@@ -279,6 +418,47 @@ class SensorSystem:
             std_dev = math.sqrt(variance)
             logger.info(f"Ultrasonic self-check: avg={avg_reading:.1f}cm, std_dev={std_dev:.1f}cm")
 
+    def is_on_black_line(self):
+        """
+        Grid line detection  that is calibrated with the brightness values...
+        Detects if either or both sensors are on a black line.
+
+        Returns:
+            tuple: (on_line, sensor_position)
+                - on_line: True if any sensor is on a black line, False otherwise
+                - sensor_position: "both", "left", "right", or None
+        """
+        # Take multiple readings for reliability
+        left_vals = []
+        right_vals = []
+
+        for _ in range(3):  # Take 3 samples
+            left_brightness, right_brightness = self.get_brightness_values()
+            left_vals.append(left_brightness)
+            right_vals.append(right_brightness)
+            time.sleep(0.01)  # Small delay between readings
+
+        # Calculate average brightness
+        left_avg = sum(left_vals) / len(left_vals) if left_vals else 0
+        right_avg = sum(right_vals) / len(right_vals) if right_vals else 0
+
+        # Determine if sensors are on a black line
+        left_on_black = left_avg < self.black_threshold
+        right_on_black = right_avg < self.black_threshold
+
+        logger.debug(f"Left brightness: {left_avg:.1f}, Right brightness: {right_avg:.1f}")
+        logger.debug(
+            f"Black threshold: {self.black_threshold}, Left on black: {left_on_black}, Right on black: {right_on_black}")
+
+        if left_on_black and right_on_black:
+            return True, "both"
+        elif left_on_black:
+            return True, "left"
+        elif right_on_black:
+            return True, "right"
+        else:
+            return False, None
+
     def get_wall_distance(self):
         """
         Get filtered distance to nearest wall using ultrasonic sensor.
@@ -335,6 +515,7 @@ class SensorSystem:
         else:
             logger.debug(f"Ultrasonic distance: {avg_dist:.1f}cm (based on {len(trimmed_readings)} readings)")
             return avg_dist
+
     def get_sensor_data(self):
         """    Get readings from all sensors for debugging and calibration.
     """
