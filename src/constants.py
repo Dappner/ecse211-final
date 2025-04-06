@@ -21,7 +21,7 @@ SPEED_MODIFIER = 2  # Multiplier for MOTOR_DPS
 
 # Time-based movement constants
 FORWARD_TIME_PER_BLOCK = 2.28  # Time in seconds to move one block forward
-TURN_90_TIME = 2.32  # Time in seconds for a 90-degree turn
+TURN_90_TIME = 2.2  # Time in seconds for a 90-degree turn
 
 DROPPER_MOTOR_TIME = 0.7
 DROPPER_MOTOR_DPS = 360

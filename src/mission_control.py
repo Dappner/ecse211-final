@@ -107,7 +107,7 @@ class MissionControl:
         # Execute movement (always one block north)
         current_forward_time = self.drive.forward_time_per_block
         logger.info(f"Moving forward one block with timing {current_forward_time:.2f}s")
-        self.drive.advance_blocks(1)
+        self.navigation.navigate_to(HALLWAY_PATH[1][0], HALLWAY_PATH[1][0])
 
         # Measure actual distance moved
         actual_blocks_moved = 1.0  # Default assumption

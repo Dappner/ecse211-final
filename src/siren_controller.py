@@ -48,10 +48,7 @@ class SirenController:
             return
 
         self.siren_active = True
-        self.siren_thread = threading.Thread(target=self._play_siren)
-        self.siren_thread.daemon = (
-            True  # Allow the thread to be terminated when the program exits
-        )
+        self.siren_thread = threading.Thread(target=self._play_siren, daemon=True)
         self.siren_thread.start()
         logger.info("Siren started")
 
