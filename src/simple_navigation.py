@@ -31,7 +31,7 @@ class SimpleNavigation:
 
     def follow_hallway_path(self):
         """
-        Navigate through the hallway path to the room entrance.
+        Navigate through the hallway path to the room entrance with strategic grid alignments.
 
         Returns:
             bool: True if successful, False otherwise
@@ -41,23 +41,59 @@ class SimpleNavigation:
         # Start at beginning of path
         self.current_path_index = 0
 
-        # Navigate each segment of the hallway path
-        for i in range(1, len(HALLWAY_PATH)):
+        # First move from (0,0) to (0,1)
+        prev_pos = HALLWAY_PATH[0]  # (0,0)
+        current_pos = HALLWAY_PATH[1]  # (0,1)
+
+        logger.info(f"Moving from start position {prev_pos} to {current_pos}")
+        success = self._move_to_adjacent_position(prev_pos, current_pos)
+        if not success:
+            logger.error(f"Failed to move to first position {current_pos}")
+            return False
+
+        self.current_path_index = 1
+        time.sleep(0.2)
+
+        # Second move from (0,1) to (0,2)
+        prev_pos = HALLWAY_PATH[1]  # (0,1)
+        current_pos = HALLWAY_PATH[2]  # (0,2)
+
+        logger.info(f"Moving to position {current_pos}")
+        success = self._move_to_adjacent_position(prev_pos, current_pos)
+        if not success:
+            logger.error(f"Failed to move to second position {current_pos}")
+            return False
+
+        self.current_path_index = 2
+        time.sleep(0.2)
+        # Turn to EAST
+        self.drive.turn(EAST)
+
+        # At position (0,2): turned EAST - Now perform grid alignment
+        logger.info("At position (0,2) - Performing grid alignment after turn")
+        if not self.align_with_grid():
+            logger.warning("Grid alignment failed, continuing with caution")
+
+        # Complete the rest of the hallway path
+        for i in range(3, len(HALLWAY_PATH)):
             prev_pos = HALLWAY_PATH[i - 1]
             current_pos = HALLWAY_PATH[i]
 
+            logger.info(f"Moving to position {current_pos}")
             success = self._move_to_adjacent_position(prev_pos, current_pos)
             if not success:
                 logger.error(f"Failed to move from {prev_pos} to {current_pos}")
                 return False
 
-            # Update path index
             self.current_path_index = i
-
-            # Pause between movements
             time.sleep(0.2)
-
+        # Turn north (facing burning room)
         self.drive.turn(NORTH)
+
+        # At ENTRANCE position - check for orange line
+        logger.info("At entrance position - checking for orange line")
+        if not self.align_with_entrance():
+            logger.warning("Entrance alignment failed, continuing with caution")
 
         logger.info("Hallway navigation completed")
         return True
@@ -174,7 +210,6 @@ class SimpleNavigation:
         # If we turned, allow a small pause for stability
         if turn_performed:
             time.sleep(0.2)
-            self.align_with_grid()
 
         # Move forward one block
         success = self.drive.advance_blocks(1)
@@ -182,8 +217,6 @@ class SimpleNavigation:
         if not success:
             logger.error(f"Failed to advance from {start_pos} to {end_pos}")
             return False
-
-        # After movement, check for grid alignment to stay on track, but only if we turned
 
         return True
 
@@ -211,29 +244,26 @@ class SimpleNavigation:
 
             last_position = position
 
-            # Only proceed with adjustment if we have stable readings
             if consecutive_stable_readings >= self.consecutive_readings_needed:
                 if on_black:
                     if position == "BOTH":
                         logger.info("Both sensors aligned with grid line")
                         self.drive.stop()
-                        # Back up slightly to center over the line
-                        self.drive.move_backward_slightly(0.2)
+                        # Backing up to center.
+                        self.drive.advance_blocks(-0.3)
                         return True
                     elif position == "LEFT":
                         logger.info("Left sensor on grid line, turning slightly left")
-                        self.drive.turn_slightly_left(self.alignment_turn_speed)
+                        self.drive.turn_slightly_left(0.1)
                     elif position == "RIGHT":
                         logger.info("Right sensor on grid line, turning slightly right")
                         # Reduce turn increment for finer control
-                        self.drive.turn_slightly_right(self.alignment_turn_speed)
+                        self.drive.turn_slightly_right(0.1)
                 else:
-                    # Neither sensor on grid line
-                    logger.debug("No grid line detected, inching forward")
-                    # Use smaller increment for searching
-                    self.drive.move_forward_slightly(self.alignment_forward_speed)
+                    # No sensor on grid line -> Move Forward
+                    logger.info("No grid line detected, inching forward")
+                    self.drive.move_forward_slightly(0.2)
 
-            # Stop motors between adjustments to avoid momentum issues
             self.drive.stop()
 
             # Pause slightly to let sensors and robot stabilize
@@ -241,21 +271,11 @@ class SimpleNavigation:
 
             attempts += 1
 
-            # If we've made several attempts without finding a line, try a slightly larger movement
-            if attempts % 5 == 0 and not on_black:
-                logger.info(f"Made {attempts} attempts, trying larger search movement")
-                self.drive.move_forward_slightly(self.alignment_forward_speed * 2)
-
         logger.warning(f"Grid alignment failed after {attempts} attempts")
         return False
 
     def align_with_entrance(self):
-        """
-        Improved entrance alignment using more patient approach with smaller movements.
-
-        Returns:
-            bool: True if successfully aligned, False otherwise
-        """
+        """ Attempts to align with the orange entrance line"""
         logger.info("Attempting to align with room entrance (orange line)...")
         attempts = 0
         consecutive_stable_readings = 0
@@ -281,31 +301,18 @@ class SimpleNavigation:
                         self.drive.stop()
                         return True
                     elif position == "LEFT":
-                        logger.info("Left sensor detected entrance, turning slightly left")
-                        self.drive.turn_slightly_left(self.alignment_turn_speed)
-                        time.sleep(0.1)
+                        logger.info("Left sensor on entrance line, turning slightly left")
+                        self.drive.turn_slightly_left(0.1)
                     elif position == "RIGHT":
-                        logger.info("Right sensor detected entrance, turning slightly right")
-                        self.drive.turn_slightly_right(self.alignment_turn_speed)
-                        time.sleep(0.1)
+                        logger.info("Right sensor on entrance line, turning slightly right")
+                        self.drive.turn_slightly_right(0.1)
                 else:
-                    # Try forward and backward small movements in alternation
-                    if attempts % 3 == 0:
-                        logger.debug("No entrance detected, moving slightly forward")
-                        self.drive.move_forward_slightly(self.alignment_forward_speed)
-                    elif attempts % 3 == 1:
-                        logger.debug("No entrance detected, moving slightly backward")
-                        self.drive.move_backward_slightly(self.alignment_forward_speed)
-                    else:
-                        if attempts % 6 < 3:
-                            self.drive.turn_slightly_left(self.alignment_turn_speed * 2)
-                        else:
-                            self.drive.turn_slightly_right(self.alignment_turn_speed * 2)
+                    # No sensor on grid line -> Move Forward
+                    logger.debug("No grid line detected, inching forward")
+                    self.drive.move_forward_slightly(0.2)
 
-            # Always stop motors between adjustments
             self.drive.stop()
 
-            # Pause to let sensors stabilize
             time.sleep(0.2)
 
             attempts += 1

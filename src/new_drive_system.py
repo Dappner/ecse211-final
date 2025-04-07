@@ -3,7 +3,7 @@ import time
 from utils.brick import Motor
 from src.constants import (
     NORTH, SOUTH, EAST, WEST, MOTOR_ENCODER_COUNTS_PER_BLOCK, MOTOR_ENCODER_TOLERANCE, TURN_ENCODER_COUNTS_90,
-    MOTOR_DPS  # We'll still use the DPS value from constants
+    MOTOR_DPS, TURN_DPS  # We'll still use the DPS value from constants
 )
 
 logger = logging.getLogger("encoder_drive")
@@ -32,27 +32,52 @@ class NewDriveSystem:
         # Track whether in motion (important because we are using relative position)
         self.is_moving = False
 
-        # Reduced speed for precision movements (% of normal speed)
-        self.precision_speed_factor = 0.6
-
         # Motor power settings
         self.normal_power = 70
         self.precision_power = 40
 
-        # Small movement timing constants (seconds)
-        self.small_turn_base_time = 0.15
-        self.small_move_base_time = 0.25
+        self.current_power = None  # Initial state is unknown
 
-        # Set motor limits for safer operation
-        self.set_motor_limits()
+        # Time to wait after changing power
+        self.motor_settling_time = 0.5
 
-        logger.info("Encoder-based Drive System initialized")
+        # Initialize motors with normal power
+        self.update_motor_power(self.normal_power)
+
+        logger.info("Drive System initialized")
+
+    def update_motor_power(self, power):
+        """Update motor power if different from current setting.
+
+        Returns:
+            bool: True if power was updated (and settling time applied)
+        """
+        if power != self.current_power:
+            # Power changed, update limits and apply settling time
+            self.left_motor.set_limits(power=power)
+            self.right_motor.set_limits(power=power)
+            self.current_power = power
+
+            # Wait for settings to take effect
+            time.sleep(self.motor_settling_time)
+            logger.debug(f"Motor power updated to {power}%")
+            return True
+
+        # No change needed
+        return False
 
     def set_motor_limits(self, power=70, dps=MOTOR_DPS):
         """Set motor power and speed limits."""
-        self.left_motor.set_limits(power=power, dps=dps)
-        self.right_motor.set_limits(power=power, dps=dps)
-        logger.debug(f"Motor limits set: power={power}%, dps={dps}")
+        # Only update and sleep if different from current power
+        if power != self.current_power:
+            self.left_motor.set_limits(power=power, dps=dps)
+            self.right_motor.set_limits(power=power, dps=dps)
+            self.current_power = power
+
+            # Allow limits to take effect
+            time.sleep(self.motor_settling_time)
+
+            logger.debug(f"Motor limits set: power={power}%, dps={dps}")
 
     def reset_encoders(self):
         """Reset both motor encoders to zero."""
@@ -61,191 +86,92 @@ class NewDriveSystem:
         logger.debug("Motor encoders reset to zero")
 
     def stop(self):
-        """Immediately stop all motors."""
+        """Stop all motors."""
         self.left_motor.set_power(0)
         self.right_motor.set_power(0)
+        time.sleep(0.1)  # Short delay to ensure motors stop
         logger.debug("Motors stopped")
 
+    def set_motors_turn_left(self):
+        """Set motors for left turn."""
+        if self.current_left_dps != -TURN_DPS or self.current_right_dps != TURN_DPS:
+            self.left_motor.set_dps(-TURN_DPS)
+            self.right_motor.set_dps(TURN_DPS)
+            self.current_left_dps = -TURN_DPS
+            self.current_right_dps = TURN_DPS
+
+    def set_motors_turn_right(self):
+        """Set motors for right turn."""
+        if self.current_left_dps != TURN_DPS or self.current_right_dps != -TURN_DPS:
+            self.left_motor.set_dps(TURN_DPS)
+            self.right_motor.set_dps(-TURN_DPS)
+            self.current_left_dps = TURN_DPS
+            self.current_right_dps = -TURN_DPS
+
+    def reset_motors(self):
+        """Stop all motors by setting DPS to 0."""
+        if self.current_left_dps != 0 or self.current_right_dps != 0:
+            self.left_motor.set_dps(0)
+            self.right_motor.set_dps(0)
+            self.current_left_dps = 0
+            self.current_right_dps = 0
+            # Give motors time to fully stop
+            time.sleep(0.1)
+
     def wait_for_completion(self, timeout=10.0):
-        """
-        Wait for motors to complete their movements.
-
-        Args:
-            timeout: Maximum time to wait in seconds
-
-        Returns:
-            bool: True if completed, False if timed out
-        """
+        """Wait for motors to complete their movements."""
         start_time = time.time()
+        time.sleep(0.2)  # Initially give motors time to start moving
 
-        # Initially give motors time to start moving
-        time.sleep(0.2)
-
-        # Busy wait with a small sleep to reduce CPU usage
         while time.time() - start_time < timeout:
             left_moving = self.left_motor.is_moving()
             right_moving = self.right_motor.is_moving()
 
             if not (left_moving or right_moving):
-                # Motors have stopped, movement completed
-                return True
+                return True  # Movement completed
 
             time.sleep(0.05)  # Small sleep to prevent CPU hogging
 
-        # If we reach here, we've timed out
+        # Timeout occurred
         logger.warning(f"Motor movement timed out after {timeout} seconds")
-        self.stop()  # Force stop if timed out
+        self.stop()
         return False
 
     def advance_blocks(self, num_blocks):
-        """
-        Move forward a specified number of blocks using encoder feedback.
-
-        Args:
-            num_blocks: Number of blocks to move forward (negative for backward)
-
-        Returns:
-            bool: True if successful, False otherwise
-        """
+        """Move forward a specified number of blocks."""
         logger.info(f"Moving {'forward' if num_blocks > 0 else 'backward'} {abs(num_blocks)} blocks")
 
-        # Calculate encoder counts based on direction, adjusted by calibration factor
+        self.stop()
+        self.update_motor_power(self.normal_power)
+
+        # Calculate encoder counts
         counts = int(MOTOR_ENCODER_COUNTS_PER_BLOCK * num_blocks * self.forward_factor)
 
-        # Track starting positions for verification
-        left_start = self.left_motor.get_encoder()
-        right_start = self.right_motor.get_encoder()
-
-        # Set relative positions for both motors
+        # Set relative positions
         self.left_motor.set_position_relative(counts)
         self.right_motor.set_position_relative(counts)
 
-        # Wait for movement to complete
-        result = self.wait_for_completion()
-
-        if result:
-            # Verify movement completed correctly
-            left_end = self.left_motor.get_encoder()
-            right_end = self.right_motor.get_encoder()
-
-            left_delta = left_end - left_start
-            right_delta = right_end - right_start
-
-            logger.debug(f"Movement completed: Left={left_delta}, Right={right_delta}, Target={counts}")
-
-            # Check if movement was accurate within tolerance
-            left_error = abs(left_delta - counts)
-            right_error = abs(right_delta - counts)
-
-            if left_error > MOTOR_ENCODER_TOLERANCE or right_error > MOTOR_ENCODER_TOLERANCE:
-                logger.warning(f"Movement error detected: Left error={left_error}, Right error={right_error}")
-                # Could adjust calibration here based on errors
-
-        return result
-
-    def move_forward_slightly(self, distance_factor=0.2):
-        """
-        Move forward slightly for small adjustments with improved precision.
-
-        Args:
-            distance_factor: Fraction of a block to move (0.2 = 20% of a block)
-        """
-        logger.debug(f"Moving forward slightly ({distance_factor} block)")
-
-        # Use lower power for small movements
-        self.set_motor_limits(power=self.precision_power)
-
-        # For very small movements, use timed motion instead of position
-        if distance_factor < 0.08:
-            # Use direct motor control with reduced speed
-            reduced_dps = MOTOR_DPS * self.precision_speed_factor
-            self.left_motor.set_dps(reduced_dps)
-            self.right_motor.set_dps(reduced_dps)
-
-            # Scale time proportionally to distance
-            movement_time = self.small_move_base_time * distance_factor / 0.2
-            time.sleep(movement_time)
-
-            self.stop()
-            return
-
-        # For larger small movements, use position control
-        counts = int(MOTOR_ENCODER_COUNTS_PER_BLOCK * distance_factor * self.forward_factor)
-
-        # Use position_relative for consistent movement
-        self.left_motor.set_position_relative(counts)
-        self.right_motor.set_position_relative(counts)
-        self.is_moving = True
-
-        # Use shorter timeout for small movements
-        self.wait_for_completion(timeout=max(1.0, 2.0 * distance_factor))
-
-        # Reset to normal power
-        self.set_motor_limits(power=self.normal_power)
-
-    def move_backward_slightly(self, distance_factor=0.2):
-        """
-        Move backward slightly for small adjustments with improved precision.
-
-        Args:
-            distance_factor: Fraction of a block to move (0.2 = 20% of a block)
-        """
-        logger.debug(f"Moving backward slightly ({distance_factor} block)")
-
-        # Use lower power for small movements
-        self.set_motor_limits(power=self.precision_power)
-
-        # For very small movements, use timed motion
-        if distance_factor < 0.08:
-            # Use direct motor control with reduced speed
-            reduced_dps = MOTOR_DPS * self.precision_speed_factor
-            self.left_motor.set_dps(-reduced_dps)
-            self.right_motor.set_dps(-reduced_dps)
-
-            # Scale time proportionally to distance
-            movement_time = self.small_move_base_time * distance_factor / 0.2
-            time.sleep(movement_time)
-
-            self.stop()
-            return
-
-        # Use negative counts for backward movement
-        counts = -int(MOTOR_ENCODER_COUNTS_PER_BLOCK * distance_factor * self.forward_factor)
-
-        self.left_motor.set_position_relative(counts)
-        self.right_motor.set_position_relative(counts)
-        self.is_moving = True
-
-        self.wait_for_completion(timeout=max(1.0, 2.0 * distance_factor))
-
-        # Reset to normal power
-        self.set_motor_limits(power=self.normal_power)
+        return self.wait_for_completion()
 
     def turn_90_left(self, times=1):
-        """
-        Turn left 90 degrees (or multiple of 90).
-
-        Args:
-            times: Number of 90-degree turns to make
-
-        Returns:
-            bool: True if successful, False otherwise
-        """
+        """Turn left 90 degrees (or multiple of 90)."""
         logger.info(f"Turning left {90 * times} degrees")
 
-        # Calculate encoder counts for turn, adjusted by calibration factor
+        self.stop()
+        self.update_motor_power(self.normal_power)
+
+        # Calculate encoder counts
         counts = int(TURN_ENCODER_COUNTS_90 * times * self.turn_factor)
 
-        # For left turn: left motor backward, right motor forward
+        # Set relative positions for turn
         self.left_motor.set_position_relative(-counts)
         self.right_motor.set_position_relative(counts)
 
-        # Wait for movement to complete
         result = self.wait_for_completion()
 
         if result:
             # Update orientation
-            directions = [NORTH, WEST, SOUTH, EAST]  # Counter-clockwise order
+            directions = [NORTH, WEST, SOUTH, EAST]  # Counter-clockwise
             current_index = directions.index(self.orientation)
             new_index = (current_index + times) % 4
             self.orientation = directions[new_index]
@@ -254,30 +180,24 @@ class NewDriveSystem:
         return result
 
     def turn_90_right(self, times=1):
-        """
-        Turn right 90 degrees (or multiple of 90).
-
-        Args:
-            times: Number of 90-degree turns to make
-
-        Returns:
-            bool: True if successful, False otherwise
-        """
+        """Turn right 90 degrees (or multiple of 90)."""
         logger.info(f"Turning right {90 * times} degrees")
 
-        # Calculate encoder counts for turn, adjusted by calibration factor
+        self.stop()
+        self.update_motor_power(self.normal_power)
+
+        # Calculate encoder counts
         counts = int(TURN_ENCODER_COUNTS_90 * times * self.turn_factor)
 
-        # For right turn: left motor forward, right motor backward
+        # Set relative positions for turn
         self.left_motor.set_position_relative(counts)
         self.right_motor.set_position_relative(-counts)
 
-        # Wait for movement to complete
         result = self.wait_for_completion()
 
         if result:
             # Update orientation
-            directions = [NORTH, EAST, SOUTH, WEST]  # Clockwise order
+            directions = [NORTH, EAST, SOUTH, WEST]  # Clockwise
             current_index = directions.index(self.orientation)
             new_index = (current_index + times) % 4
             self.orientation = directions[new_index]
@@ -285,87 +205,61 @@ class NewDriveSystem:
 
         return result
 
-    def turn_slightly_left(self, angle_factor=0.1):
-        """
-        Turn slightly left without changing tracked orientation.
-        Uses very precise movements for improved alignment.
+    def turn_slightly_left(self, time_seconds=0.2):
+        """Make a small left turn adjustment."""
+        logger.debug(f"Turning slightly left for {time_seconds} seconds")
 
-        Args:
-            angle_factor: Fraction of a 90-degree turn (0.1 = 9 degrees)
-        """
-        logger.debug(f"Turning slightly left ({angle_factor * 90} degrees)")
+        # Use precision power for small movements
+        self.update_motor_power(self.precision_power)
 
-        # Use lower power for fine movements
-        self.set_motor_limits(power=self.precision_power)
+        # Set motor speeds directly
+        self.left_motor.set_dps(-TURN_DPS)
+        self.right_motor.set_dps(TURN_DPS)
 
-        # For very small adjustments, use timed control instead of position
-        if angle_factor < 0.05:
-            # Use direct speed control with reduced speed
-            reduced_dps = MOTOR_DPS * self.precision_speed_factor
-            self.left_motor.set_dps(-reduced_dps)
-            self.right_motor.set_dps(reduced_dps)
+        time.sleep(time_seconds)
+        self.stop()
 
-            # Scale time proportionally to angle
-            movement_time = self.small_turn_base_time * angle_factor / 0.1
-            time.sleep(movement_time)
+    def turn_slightly_right(self, time_seconds=0.2):
+        """Make a small right turn adjustment."""
+        logger.debug(f"Turning slightly right for {time_seconds} seconds")
 
-            self.stop()
-            return
+        # Use precision power for small movements
+        self.update_motor_power(self.precision_power)
 
-        # For larger angle adjustments, use position control
-        counts = int(TURN_ENCODER_COUNTS_90 * angle_factor * self.turn_factor)
+        # Set motor speeds directly
+        self.left_motor.set_dps(TURN_DPS)
+        self.right_motor.set_dps(-TURN_DPS)
 
-        # Apply turn without updating orientation
-        self.left_motor.set_position_relative(-counts)
-        self.right_motor.set_position_relative(counts)
-        self.is_moving = True
+        time.sleep(time_seconds)
+        self.stop()
 
-        # Wait for movement to complete with shorter timeout
-        self.wait_for_completion(timeout=max(1.0, 2.0 * angle_factor))
+    def move_forward_slightly(self, time_seconds=0.2):
+        """Move forward slightly."""
+        logger.debug(f"Moving forward slightly for {time_seconds} seconds")
 
-        # Reset to normal power
-        self.set_motor_limits(power=self.normal_power)
+        # Use precision power for small movements
+        self.update_motor_power(self.precision_power)
 
-    def turn_slightly_right(self, angle_factor=0.1):
-        """
-        Turn slightly right without changing tracked orientation.
-        Uses very precise movements for improved alignment.
+        # Set motor speeds directly
+        self.left_motor.set_dps(MOTOR_DPS / 2)
+        self.right_motor.set_dps(MOTOR_DPS / 2)
 
-        Args:
-            angle_factor: Fraction of a 90-degree turn (0.1 = 9 degrees)
-        """
-        logger.debug(f"Turning slightly right ({angle_factor * 90} degrees)")
+        time.sleep(time_seconds)
+        self.stop()
 
-        # Use lower power for fine movements
-        self.set_motor_limits(power=self.precision_power)
+    def move_backward_slightly(self, time_seconds=0.2):
+        """Move backward slightly."""
+        logger.debug(f"Moving backward slightly for {time_seconds} seconds")
 
-        # For very small adjustments, use timed control instead of position
-        if angle_factor < 0.05:
-            # Use direct speed control with reduced speed
-            reduced_dps = MOTOR_DPS * self.precision_speed_factor
-            self.left_motor.set_dps(reduced_dps)
-            self.right_motor.set_dps(-reduced_dps)
+        # Use precision power for small movements
+        self.update_motor_power(self.precision_power)
 
-            # Scale time proportionally to angle
-            movement_time = self.small_turn_base_time * angle_factor / 0.1
-            time.sleep(movement_time)
+        # Set motor speeds directly
+        self.left_motor.set_dps(-MOTOR_DPS / 2)
+        self.right_motor.set_dps(-MOTOR_DPS / 2)
 
-            self.stop()
-            return
-
-        # For larger angle adjustments, use position control
-        counts = int(TURN_ENCODER_COUNTS_90 * angle_factor * self.turn_factor)
-
-        # Apply turn without updating orientation
-        self.left_motor.set_position_relative(counts)
-        self.right_motor.set_position_relative(-counts)
-        self.is_moving = True
-
-        # Wait for movement to complete with shorter timeout
-        self.wait_for_completion(timeout=max(1.0, 2.0 * angle_factor))
-
-        # Reset to normal power
-        self.set_motor_limits(power=self.normal_power)
+        time.sleep(time_seconds)
+        self.stop()
 
     def turn(self, target_direction):
         """
