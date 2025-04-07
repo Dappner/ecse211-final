@@ -160,8 +160,18 @@ class SimpleNavigation:
             logger.error(f"Invalid move from {start_pos} to {end_pos} - not adjacent")
             return False
 
+        # Check if a turn is needed
+        turn_performed = orientation != self.drive.orientation
+
         # Turn to face the right direction
         self.drive.turn(orientation)
+
+        # Track that we just performed a turn if direction changed
+        self._last_operation_was_turn = turn_performed
+
+        # If we turned, allow a small pause for stability
+        if turn_performed:
+            time.sleep(0.2)
 
         # Move forward one block
         success = self.drive.advance_blocks(1)
@@ -170,40 +180,54 @@ class SimpleNavigation:
             logger.error(f"Failed to advance from {start_pos} to {end_pos}")
             return False
 
-        # After movement, check for grid alignment to stay on track
-        self.align_with_grid()
+        # After movement, check for grid alignment to stay on track, but only if we turned
+        if turn_performed:
+            self.align_with_grid()
 
         return True
 
     def align_with_grid(self):
-        """Align robot with black grid lines using both color sensors."""
-        logger.info("Aligning with grid...")
+        """
+        Align robot with black grid lines using both color sensors.
+        Returns:
+            bool: True if successfully aligned, False otherwise
+        """
 
+        logger.info("Aligning with grid...")
         attempts = 0
+        alignment_successful = False
 
         while attempts < MAX_GRID_ALIGNMENT_ATTEMPTS:
-            on_black = self.sensors.is_on_black_line()
+            on_black, sensor_position = self.sensors.is_on_black_line()
 
-            if on_black[0]:  # First element is boolean success
-                if on_black[1] == "both":
+            if on_black:  # If black line detected
+                if sensor_position == "both":
                     logger.info("Aligned with black grid line")
                     self.drive.stop()
-                    return True
-                elif on_black[1] == "left":
+                    alignment_successful = True
+                    break
+                elif sensor_position == "left":
+                    logger.info("Left sensor on black, turning right slightly")
+                    self.drive.turn_slightly_right(0.1)
+                elif sensor_position == "right":
                     logger.info("Left sensor on black, turning left slightly")
                     self.drive.turn_slightly_left(0.1)
-                elif on_black[1] == "right":
-                    logger.info("Right sensor on black, turning right slightly")
-                    self.drive.turn_slightly_right(0.1)
             else:
                 logger.debug("No black detected, moving forward slowly")
-                self.drive.move_forward_slightly(0.2)
+                self.drive.move_forward_slightly(0.1)
 
             self.drive.stop()
+            time.sleep(0.1)  # Short pause to let sensors settle
             attempts += 1
 
-        logger.warning(f"Failed to align with grid after {MAX_GRID_ALIGNMENT_ATTEMPTS} attempts")
-        return False
+        # If alignment was successful, back up to center of block
+        if alignment_successful:
+            logger.info("Backing up to center of block")
+            self.drive.move_backward_slightly(0.3)
+            return True
+        else:
+            logger.warning(f"Failed to align with grid after {MAX_GRID_ALIGNMENT_ATTEMPTS} attempts")
+            return False
 
     def align_with_entrance(self):
         """Attempt to align with the orange entrance line."""
@@ -215,11 +239,11 @@ class SimpleNavigation:
             found_orange, side = self.sensors.check_for_entrance()
 
             if found_orange:
-                if side == "left":
+                if side == "LEFT":
                     logger.info("Orange line detected on left, adjusting position")
                     self.drive.turn_slightly_left(0.1)
                     self.drive.move_forward_slightly(0.3)
-                elif side == "right":
+                elif side == "RIGHT":
                     logger.info("Orange line detected on right, adjusting position")
                     self.drive.turn_slightly_right(0.1)
                     self.drive.move_forward_slightly(0.3)
