@@ -1,7 +1,7 @@
 import logging
 from src.constants import (
-    MOTOR_DPS, MOTOR_POWER,
-    NORTH, SOUTH, EAST, WEST, DIRECTION_VECTORS, TURN_90_TIME, FORWARD_TIME_PER_BLOCK
+    MOTOR_DPS, TURN_DPS,
+    NORTH, SOUTH, EAST, WEST, TURN_90_TIME, FORWARD_TIME_PER_BLOCK
 )
 import time
 
@@ -40,45 +40,80 @@ class DriveSystem:
         self.right_motor.set_dps(0)
 
     def set_motors_turn_left(self):
-        """Set motors for left turn using power settings."""
-        self.left_motor.set_power(-MOTOR_POWER)
-        self.right_motor.set_power(MOTOR_POWER)
+        """Set motors for left turn using DPS."""
+        self.left_motor.set_dps(-TURN_DPS)
+        self.right_motor.set_dps(TURN_DPS)
 
     def set_motors_turn_right(self):
-        """Set motors for right turn using power settings."""
-        self.left_motor.set_power(MOTOR_POWER)
-        self.right_motor.set_power(-MOTOR_POWER)
+        """Set motors for right turn using DPS."""
+        self.left_motor.set_dps(TURN_DPS)
+        self.right_motor.set_dps(-TURN_DPS)
 
     def advance_blocks(self, number):
-        """Move forward a specified number of blocks based on tested timing values."""
+        """Move forward a specified number of blocks based on calibrated timing values."""
         logger.debug(f"Advancing {number} blocks")
+
+        # Log encoder positions before movement
+        left_pos_before = self.left_motor.get_position()
+        right_pos_before = self.right_motor.get_position()
+
+        # Set motors to move forward
         self.left_motor.set_dps(MOTOR_DPS)
         self.right_motor.set_dps(MOTOR_DPS)
+
+        # Sleep for calibrated time
         time.sleep(self.forward_time_per_block * number)
+
+        # Stop motors
         self.reset_motors()
 
-    def move_forward_slightly(self, time_seconds=0.5):
+        # Log encoder positions after movement for debugging
+        left_pos_after = self.left_motor.get_position()
+        right_pos_after = self.right_motor.get_position()
+
+        left_delta = left_pos_after - left_pos_before
+        right_delta = right_pos_after - right_pos_before
+
+        logger.debug(f"Motor movement - Left: {left_delta}, Right: {right_delta} degrees")
+
+        return left_delta, right_delta
+
+    def move_forward_slightly(self, time_seconds=0.2):
         """Move forward slightly for small adjustments."""
         logger.debug(f"Moving forward slightly for {time_seconds} seconds")
-        self.left_motor.set_power(MOTOR_POWER / 2)
-        self.right_motor.set_power(MOTOR_POWER / 2)
+        self.left_motor.set_dps(MOTOR_DPS / 2)
+        self.right_motor.set_dps(MOTOR_DPS / 2)
         time.sleep(time_seconds)
         self.reset_motors()
 
-    def move_backward_slightly(self, time_seconds=0.5):
+    def move_backward_slightly(self, time_seconds=0.2):
         """Move backward slightly for small adjustments."""
-        logger.debug(f"Moving forward slightly for {time_seconds} seconds")
-        self.left_motor.set_power(-MOTOR_POWER / 2)
-        self.right_motor.set_power(-MOTOR_POWER / 2)
+        logger.debug(f"Moving backward slightly for {time_seconds} seconds")
+        self.left_motor.set_dps(-MOTOR_DPS / 2)
+        self.right_motor.set_dps(-MOTOR_DPS / 2)
         time.sleep(time_seconds)
         self.reset_motors()
 
     def turn_90_left(self, times=1):
-        """Turn left 90 degrees (or multiple of 90) based on tested timing values."""
+        """Turn left 90 degrees (or multiple of 90) using DPS and timing."""
         logger.debug(f"Turning left {90 * times} degrees")
+
+        # Track encoder positions for debugging
+        left_pos_before = self.left_motor.get_position()
+        right_pos_before = self.right_motor.get_position()
+
         self.set_motors_turn_left()
         time.sleep(self.turn_90_time * times)
         self.reset_motors()
+
+        # Log encoder positions after turn
+        left_pos_after = self.left_motor.get_position()
+        right_pos_after = self.right_motor.get_position()
+
+        left_delta = left_pos_after - left_pos_before
+        right_delta = right_pos_after - right_pos_before
+
+        logger.debug(f"Turn left movement - Left: {left_delta}, Right: {right_delta} degrees")
 
         # Update orientation
         directions = [NORTH, WEST, SOUTH, EAST]
@@ -86,17 +121,31 @@ class DriveSystem:
             current_index = directions.index(self.orientation)
             new_index = (current_index + times) % 4
             self.orientation = directions[new_index]
-            logger.debug(f"Internal Drive orientation updated to: {self.orientation}")
+            logger.debug(f"Orientation updated to: {self.orientation}")
         except ValueError:
             logger.error(f"Current orientation '{self.orientation}' unknown during left turn!")
 
     def turn_90_right(self, times=1):
-        """Turn right 90 degrees (or multiple of 90) based on movement pattern."""
+        """Turn right 90 degrees (or multiple of 90) using DPS and timing."""
         logger.debug(f"Turning right {90 * times} degrees")
-        self.left_motor.set_power(MOTOR_POWER)
-        self.right_motor.set_power(-MOTOR_POWER)
+
+        # Track encoder positions for debugging
+        left_pos_before = self.left_motor.get_position()
+        right_pos_before = self.right_motor.get_position()
+
+        self.left_motor.set_dps(TURN_DPS)
+        self.right_motor.set_dps(-TURN_DPS)
         time.sleep(self.turn_90_time * times)
         self.reset_motors()
+
+        # Log encoder positions after turn
+        left_pos_after = self.left_motor.get_position()
+        right_pos_after = self.right_motor.get_position()
+
+        left_delta = left_pos_after - left_pos_before
+        right_delta = right_pos_after - right_pos_before
+
+        logger.debug(f"Turn right movement - Left: {left_delta}, Right: {right_delta} degrees")
 
         # Update orientation
         directions = [NORTH, EAST, SOUTH, WEST]
@@ -104,7 +153,7 @@ class DriveSystem:
             current_index = directions.index(self.orientation)
             new_index = (current_index + times) % 4
             self.orientation = directions[new_index]
-            logger.debug(f"Internal Drive orientation updated to: {self.orientation}")
+            logger.debug(f"Orientation updated to: {self.orientation}")
         except ValueError:
             logger.error(f"Current orientation '{self.orientation}' unknown during right turn!")
 

@@ -15,9 +15,8 @@ TOUCH_PORT = 3
 
 # ============= Motor Control Constants =============
 # Basic movement parameters
-MOTOR_POWER = 30.5  # Power percentage (0-100)
 MOTOR_DPS = 360  # Degrees per second for speed-based control
-SPEED_MODIFIER = 2  # Multiplier for MOTOR_DPS
+TURN_DPS = 180
 
 # Time-based movement constants
 FORWARD_TIME_PER_BLOCK = 2.28  # Time in seconds to move one block forward

@@ -81,9 +81,7 @@ class MissionControl:
 
     def calibrate_and_update_position(self, target_x, target_y):
         """
-        Calibrates movement during first block navigation.
-        Assumes starting position of (0,0) facing NORTH and moving to (0,1).
-        Expected distance to wall after movement should be 75cm.
+        Improved calibration during first block navigation with better position tracking.
 
         Args:
             target_x: Target X coordinate (should be 0)
@@ -95,7 +93,8 @@ class MissionControl:
         logger.info(f"Calibrating during first movement to ({target_x}, {target_y})")
 
         # Get initial position
-        start_pos = self.navigation.estimated_position
+        start_pos = self.navigation.estimated_position.copy()
+        logger.info(f"Starting position: {start_pos}")
 
         # Get initial distance reading
         initial_distance = None
@@ -107,10 +106,27 @@ class MissionControl:
         # Execute movement (always one block north)
         current_forward_time = self.drive.forward_time_per_block
         logger.info(f"Moving forward one block with timing {current_forward_time:.2f}s")
-        self.navigation.navigate_to(HALLWAY_PATH[1][0], HALLWAY_PATH[1][0])
+
+        # Track the encoder positions to measure actual movement
+        left_pos_before = self.drive.left_motor.get_position()
+        right_pos_before = self.drive.right_motor.get_position()
+
+        # Execute the move
+        self.drive.advance_blocks(1)
+
+        # Read encoder positions after movement
+        left_pos_after = self.drive.left_motor.get_position()
+        right_pos_after = self.drive.right_motor.get_position()
+
+        left_delta = left_pos_after - left_pos_before
+        right_delta = right_pos_after - right_pos_before
+        encoder_avg = (abs(left_delta) + abs(right_delta)) / 2
+
+        logger.info(f"Encoder movement - Left: {left_delta}, Right: {right_delta}, Avg: {encoder_avg}")
 
         # Measure actual distance moved
         actual_blocks_moved = 1.0  # Default assumption
+        adjustment_factor = 1.0
 
         if initial_distance is not None:
             final_distance = self.sensor_system.get_wall_distance()
@@ -121,31 +137,84 @@ class MissionControl:
                 logger.info(f"Distance moved: {distance_moved:.1f}cm (expected {expected_distance}cm)")
 
                 # Calculate actual blocks moved
-                actual_blocks_moved = distance_moved / BLOCK_SIZE
-                logger.info(f"Actual blocks moved: {actual_blocks_moved:.2f}")
+                if distance_moved > 0:  # Only adjust if positive movement detected
+                    actual_blocks_moved = distance_moved / BLOCK_SIZE
+                    logger.info(f"Actual blocks moved: {actual_blocks_moved:.2f}")
 
-                # Adjust timing for future movements
-                adjustment_factor = expected_distance / distance_moved
-                adjustment_factor = max(0.8, min(1.2, adjustment_factor))
+                    # Calculate adjustment factor with limits
+                    adjustment_factor = expected_distance / max(distance_moved, 1.0)  # Prevent division by zero
+                    adjustment_factor = max(0.8, min(1.2, adjustment_factor))  # Limit adjustment to reasonable range
 
-                # Also adjusts rotation factor
-                self.drive.turn_90_time = self.drive.turn_90_time * adjustment_factor
-                self.drive.forward_time_per_block = current_forward_time * adjustment_factor
-                logger.info(f"Adjusted forward time: {self.drive.forward_time_per_block:.2f}s (factor: {adjustment_factor:.2f})")
+                    # Also adjust turn time by the same factor
+                    old_turn_time = self.drive.turn_90_time
+                    self.drive.turn_90_time = old_turn_time * adjustment_factor
+                    logger.info(f"Adjusted turn time: {self.drive.turn_90_time:.2f}s (factor: {adjustment_factor:.2f})")
 
-                # Check final position against expected 75cm
-                expected_final_distance = 75.0  # cm
-                if abs(final_distance - expected_final_distance) > 10:  # Allow 10cm tolerance
-                    logger.warning(
-                        f"Position may be off: distance to wall is {final_distance:.1f}cm (expected {expected_final_distance}cm)")
+                    # Update forward time
+                    old_forward_time = self.drive.forward_time_per_block
+                    self.drive.forward_time_per_block = old_forward_time * adjustment_factor
+                    logger.info(
+                        f"Adjusted forward time: {self.drive.forward_time_per_block:.2f}s (factor: {adjustment_factor:.2f})")
 
-        # Update particle positions based on actual movement
+        # Update particle positions based on actual movement (using actual blocks moved instead of assumed)
         self.navigation.update_particles_after_movement(0, actual_blocks_moved)
 
-        # Update position estimate
-        self.navigation.update_position_estimate()
+        # Get new sensor data for particle weights
+        sensor_data = self.sensor_system.get_sensor_data()
+        self.navigation.update_particle_weights(sensor_data)
+        self.navigation.resample_particles()
+
+        # Force position to be on the grid point
+        self.navigation.estimated_position = [target_x, target_y]
+
+        # Sync orientation with drive
+        self.navigation.sync_orientation_with_drive()
+
+        # Boost position confidence after calibration
+        self.navigation.position_confidence = 0.8
 
         return True, actual_blocks_moved
+
+    def check_and_align_grid(self):
+        """
+        Check for grid lines and use them to correct position if detected.
+        This helps keep navigation on track without solely relying on particles.
+        """
+        on_black, sensor_side = self.sensor_system.is_on_black_line()
+
+        if on_black:
+            logger.info(f"Grid line detected on {sensor_side}, performing alignment and position correction")
+
+            # Try to align with the grid line
+            self.drive.stop()
+
+            if sensor_side == "both":
+                logger.info("Already aligned with grid line")
+            elif sensor_side == "left":
+                logger.info("Left sensor on black, turning right slightly")
+                self.drive.turn_slightly_right(0.1)
+            elif sensor_side == "right":
+                logger.info("Right sensor on black, turning left slightly")
+                self.drive.turn_slightly_left(0.1)
+
+            # Assume we're on a grid line, so round position to nearest integer
+            current_pos = self.navigation.estimated_position
+            grid_x = round(current_pos[0])
+            grid_y = round(current_pos[1])
+
+            # Update navigation with corrected position (snap to grid)
+            logger.info(f"Updating position from [{current_pos[0]:.2f}, {current_pos[1]:.2f}] to [{grid_x}, {grid_y}]")
+            self.navigation.estimated_position = [grid_x, grid_y]
+
+            # Force sync orientation
+            self.navigation.sync_orientation_with_drive()
+
+            # Boost position confidence since we know we're on a grid line
+            self.navigation.position_confidence = max(self.navigation.position_confidence, 0.7)
+
+            return True
+
+        return False
 
     def navigate_hallway(self):
         """
@@ -170,6 +239,7 @@ class MissionControl:
 
             if not self.attempt_navigation(x, y, "hallway_navigation"):
                 return False
+            self.check_and_align_grid()
 
         # Final position verification
         current_pos = self.navigation.estimated_position
@@ -193,6 +263,7 @@ class MissionControl:
                 logger.info("Position confirmed after localization.")
 
         self.drive.turn(NORTH)
+        self.navigation.align_with_entrance()
         logger.info("Hallway navigation completed")
 
         return True

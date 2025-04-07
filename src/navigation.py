@@ -1,6 +1,3 @@
-"""
-Enhanced navigation module with robust positioning and error correction.
-"""
 import logging
 import time
 import math
@@ -60,7 +57,7 @@ class Navigation:
         self.initialize_particles()
 
         # Tracking particle dispersion to detect kidnapped robot problem
-        self.dispersion_threshold = 0.8  # Threshold for particle dispersion warning
+        self.dispersion_threshold = 1.2  # Threshold for particle dispersion warning
 
         # Grid line detection
         self.last_grid_line_detection = None  # Last time we detected a grid line
@@ -150,6 +147,8 @@ class Navigation:
             for p in self.particles:
                 p.weight /= total_weight
 
+    # Replace the update_particles_after_movement method in Navigation class
+
     def update_particles_after_movement(self, dx, dy, rotation=None):
         """
         Update particle positions after movement with improved noise model.
@@ -167,24 +166,26 @@ class Navigation:
         prev_x = sum(p.x * p.weight for p in self.particles)
         prev_y = sum(p.y * p.weight for p in self.particles)
 
-        # Track expected orientation
+        # Track expected orientation - use current drive orientation if not specified
         if rotation:
             self.expected_orientation = rotation
+        else:
+            self.expected_orientation = self.drive.orientation
 
-        # Update each particle with motion model and noise
+        # Update each particle with motion model and reduced noise
         for particle in self.particles:
-            # Add noise proportional to movement distance
+            # Add noise proportional to movement distance - REDUCED NOISE LEVEL
             move_distance = math.sqrt(dx ** 2 + dy ** 2)
-            # More movement = more uncertainty
-            noise_factor = max(0.05, min(0.3, move_distance * 0.1))
+            # More movement = more uncertainty, but with lower base values
+            noise_factor = max(0.01, min(0.1, move_distance * 0.05))  # Reduced from 0.1 to 0.05
 
             noise_x = random.gauss(0, MCL_MOTION_NOISE * noise_factor)
             noise_y = random.gauss(0, MCL_MOTION_NOISE * noise_factor)
 
             # Update orientation if specified
             if rotation:
-                # Small chance of orientation error during turns
-                if random.random() < 0.05:  # 5% chance of error
+                # Small chance of orientation error during turns (reduced from 5% to 2%)
+                if random.random() < 0.02:
                     orientations = [NORTH, EAST, SOUTH, WEST]
                     orientations.remove(rotation)
                     particle.orientation = random.choice(orientations)
@@ -192,6 +193,7 @@ class Navigation:
                     particle.orientation = rotation
 
             # Update position based on orientation
+            # Use actual dx/dy values directly for better position tracking
             if particle.orientation == NORTH:
                 particle.y += dy + noise_y
                 particle.x += noise_x
@@ -218,15 +220,15 @@ class Navigation:
         new_x = sum(p.x * p.weight for p in self.particles)
         new_y = sum(p.y * p.weight for p in self.particles)
 
-        # Check if movement was realistic
+        # Check if movement was realistic - with more lenient thresholds
         expected_dist = math.sqrt(dx ** 2 + dy ** 2)
         actual_dist = math.sqrt((new_x - prev_x) ** 2 + (new_y - prev_y) ** 2)
 
-        # If movement discrepancy is too large, reduce confidence
-        if abs(actual_dist - expected_dist) > 0.5 and expected_dist > 0.1:
-            self.position_confidence *= 0.8
+        # If movement discrepancy is too large, reduce confidence but less aggressively
+        if abs(actual_dist - expected_dist) > 0.7 and expected_dist > 0.1:
+            self.position_confidence *= 0.9  # Reduced penalty from 0.8 to 0.9
             logger.warning(
-                f"Unexpected particle movement detected. Expected: {expected_dist:.2f}, Actual: {actual_dist:.2f}")
+                f"Unexpected particle movement. Expected: {expected_dist:.2f}, Actual: {actual_dist:.2f}")
 
         logger.debug(f"Updated particles after movement dx={dx}, dy={dy}, rotation={rotation}")
 
@@ -332,7 +334,7 @@ class Navigation:
         logger.debug(f"Updated particle weights based on sensor data")
 
     def _calculate_dispersion(self):
-        """Calculate particle dispersion to detect localization problems"""
+        """Calculate particle dispersion to detect localization problems with improved confidence calculation"""
         if not self.particles:
             return
 
@@ -340,24 +342,29 @@ class Navigation:
         mean_x = sum(p.x * p.weight for p in self.particles)
         mean_y = sum(p.y * p.weight for p in self.particles)
 
-        # Calculate variance
+        # Calculate variance with dampened effect
         var_x = sum(((p.x - mean_x) ** 2) * p.weight for p in self.particles)
         var_y = sum(((p.y - mean_y) ** 2) * p.weight for p in self.particles)
 
-        # Calculate total dispersion (variance)
-        dispersion = var_x + var_y
+        # Calculate total dispersion (variance) with a damping factor to make it less sensitive
+        dispersion = (var_x + var_y) * 0.7  # Reduced impact by 30%
 
-        # Update confidence based on dispersion
-        self.position_confidence = max(0.1, min(1.0, 1.0 - dispersion))
+        # Set higher dispersion threshold (more tolerant of particle spread)
+        self.dispersion_threshold = 1.0  # Increased from 0.8
 
-        # Log warning if dispersion is high
+        # Update confidence based on dispersion with a more lenient formula
+        self.position_confidence = max(0.3, min(1.0,
+                                                1.0 - dispersion * 0.6))  # Reduced impact by multiplying by 0.6 instead of 1.0
+
+        # Log warning if dispersion is high, but with higher threshold
         if dispersion > self.dispersion_threshold:
             logger.warning(f"High particle dispersion detected: {dispersion:.3f}. Low confidence in position estimate.")
 
             # If dispersion is extremely high, consider reinitializing
-            if dispersion > self.dispersion_threshold * 2 and self.position_confidence < 0.3:
+            if dispersion > self.dispersion_threshold * 2 and self.position_confidence < 0.2:
                 logger.warning("Extreme position uncertainty detected. Consider relocalizing.")
-                self.recovery_mode = True
+                # Instead of setting recovery mode, we'll try a lighter-weight reinitialization
+                self.initialize_particles(position=self.estimated_position, spread=0.3)
 
     def resample_particles(self):
         """
@@ -1299,12 +1306,25 @@ class Navigation:
         logger.info("No fire detected after search pattern")
         return False, "NONE"
 
-    def adjust_drive_timing(self, forward_factor=None, turn_factor=None):
-        """Adjust drive system timing parameters based on calibration."""
-        if forward_factor:
-            self.drive.forward_time_per_block *= forward_factor
-            logger.info(f"Adjusted forward time to {self.drive.forward_time_per_block:.3f}s")
+    def sync_orientation_with_drive(self):
+        """
+        Synchronize the expected orientation with the drive system's orientation.
+        This helps prevent orientation mismatches that cause localization issues.
+        """
+        if self.expected_orientation != self.drive.orientation:
+            logger.info(
+                f"Synchronizing orientation: expected {self.expected_orientation}, drive reports {self.drive.orientation}")
+            self.expected_orientation = self.drive.orientation
 
-        if turn_factor:
-            self.drive.turn_90_time *= turn_factor
-            logger.info(f"Adjusted turn time to {self.drive.turn_90_time:.3f}s")
+            # Also update particles to reflect actual orientation
+            for p in self.particles:
+                # Give higher weight to particles with the correct orientation
+                if p.orientation == self.drive.orientation:
+                    p.weight *= 1.5
+                else:
+                    # Small chance to force-update particle orientation for better convergence
+                    if random.random() < 0.7:  # 70% of particles get corrected orientation
+                        p.orientation = self.drive.orientation
+
+            # Re-normalize weights
+            self._normalize_weights()
