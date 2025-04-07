@@ -3,21 +3,23 @@ import time
 from utils.brick import Motor
 from src.constants import (
     NORTH, SOUTH, EAST, WEST,
-    MOTOR_ENCODER_COUNTS_PER_BLOCK,
-    TURN_ENCODER_COUNTS_90,
-    MOTOR_ENCODER_TOLERANCE
+    MOTOR_DPS  # We'll still use the DPS value from constants
 )
 
-logger = logging.getLogger("drive")
+logger = logging.getLogger("encoder_drive")
+
+# Define encoder counts per movement, will be added to constants.py in the final implementation
+ENCODER_COUNTS_PER_BLOCK = 720  # Encoder counts for one block forward movement
+ENCODER_COUNTS_PER_TURN = 510  # Encoder counts for a 90-degree turn
+ENCODER_TOLERANCE = 20  # Acceptable error in encoder counts
 
 
 class NewDriveSystem:
     """
-    Enhanced driving system using motor encoders for more reliable navigation.
-    Uses position-based control rather than time-based control for higher accuracy.
-    """
+    Position Based    """
 
     def __init__(self, left_motor, right_motor):
+        """Initialize the drive system with motors."""
         self.left_motor = left_motor
         self.right_motor = right_motor
 
@@ -27,25 +29,20 @@ class NewDriveSystem:
         # Track orientation
         self.orientation = NORTH
 
-        # PID-like parameters for position control
-        self.position_kp = 30  # Position proportional gain
-        self.position_kd = 70  # Position derivative gain
-
-        # Set motors to use position control with these parameters
-        self.left_motor.set_position_kp(self.position_kp)
-        self.left_motor.set_position_kd(self.position_kd)
-        self.right_motor.set_position_kp(self.position_kp)
-        self.right_motor.set_position_kd(self.position_kd)
+        # Calibration factors that can be adjusted during runtime
+        self.forward_factor = 1.0
+        self.turn_factor = 1.0
 
         # Set motor limits for safer operation
-        self.left_motor.set_limits(power=70, dps=360)
-        self.right_motor.set_limits(power=70, dps=360)
+        self.set_motor_limits()
 
-        # Calibration values (can be adjusted during runtime)
-        self.turn_adjustment_factor = 1.0
-        self.forward_adjustment_factor = 1.0
+        logger.info("Encoder-based Drive System initialized")
 
-        logger.info("Improved Drive System initialized with position-based control")
+    def set_motor_limits(self, power=70, dps=MOTOR_DPS):
+        """Set motor power and speed limits."""
+        self.left_motor.set_limits(power=power, dps=dps)
+        self.right_motor.set_limits(power=power, dps=dps)
+        logger.debug(f"Motor limits set: power={power}%, dps={dps}")
 
     def reset_encoders(self):
         """Reset both motor encoders to zero."""
@@ -71,12 +68,16 @@ class NewDriveSystem:
         """
         start_time = time.time()
 
+        # Initially give motors time to start moving
+        time.sleep(0.1)
+
         # Busy wait with a small sleep to reduce CPU usage
         while time.time() - start_time < timeout:
             left_moving = self.left_motor.is_moving()
             right_moving = self.right_motor.is_moving()
 
             if not (left_moving or right_moving):
+                # Motors have stopped, movement completed
                 return True
 
             time.sleep(0.05)  # Small sleep to prevent CPU hogging
@@ -91,55 +92,44 @@ class NewDriveSystem:
         Move forward a specified number of blocks using encoder feedback.
 
         Args:
-            num_blocks: Number of blocks to move forward
+            num_blocks: Number of blocks to move forward (negative for backward)
 
         Returns:
             bool: True if successful, False otherwise
         """
-        logger.info(f"Moving forward {num_blocks} blocks")
+        logger.info(f"Moving {'forward' if num_blocks > 0 else 'backward'} {abs(num_blocks)} blocks")
 
-        # Get starting encoder positions
+        # Calculate encoder counts based on direction, adjusted by calibration factor
+        counts = int(ENCODER_COUNTS_PER_BLOCK * num_blocks * self.forward_factor)
+
+        # Track starting positions for verification
         left_start = self.left_motor.get_encoder()
         right_start = self.right_motor.get_encoder()
 
-        # Calculate target encoder counts based on direction
-        encoder_counts = int(MOTOR_ENCODER_COUNTS_PER_BLOCK * num_blocks * self.forward_adjustment_factor)
-
-        if self.orientation == NORTH:
-            left_target = left_start + encoder_counts
-            right_target = right_start + encoder_counts
-        elif self.orientation == SOUTH:
-            left_target = left_start - encoder_counts
-            right_target = right_start - encoder_counts
-        elif self.orientation == EAST:
-            left_target = left_start + encoder_counts
-            right_target = right_start + encoder_counts
-        elif self.orientation == WEST:
-            left_target = left_start - encoder_counts
-            right_target = right_start - encoder_counts
-
-        # Set positions for both motors
-        self.left_motor.set_position(left_target)
-        self.right_motor.set_position(right_target)
+        # Set relative positions for both motors
+        self.left_motor.set_position_relative(counts)
+        self.right_motor.set_position_relative(counts)
 
         # Wait for movement to complete
         result = self.wait_for_completion()
 
-        # Verify we reached the target position
         if result:
-            left_final = self.left_motor.get_encoder()
-            right_final = self.right_motor.get_encoder()
+            # Verify movement completed correctly
+            left_end = self.left_motor.get_encoder()
+            right_end = self.right_motor.get_encoder()
 
-            left_error = abs(left_final - left_target)
-            right_error = abs(right_final - right_target)
+            left_delta = left_end - left_start
+            right_delta = right_end - right_start
 
-            if (left_error > MOTOR_ENCODER_TOLERANCE or
-                    right_error > MOTOR_ENCODER_TOLERANCE):
-                logger.warning(f"Position error: Left={left_error}, Right={right_error}")
-                result = False
+            logger.debug(f"Movement completed: Left={left_delta}, Right={right_delta}, Target={counts}")
 
-            logger.debug(
-                f"Move completed: Left moved {left_final - left_start}, Right moved {right_final - right_start}")
+            # Check if movement was accurate within tolerance
+            left_error = abs(left_delta - counts)
+            right_error = abs(right_delta - counts)
+
+            if left_error > ENCODER_TOLERANCE or right_error > ENCODER_TOLERANCE:
+                logger.warning(f"Movement error detected: Left error={left_error}, Right error={right_error}")
+                # Could adjust calibration here based on errors
 
         return result
 
@@ -151,7 +141,15 @@ class NewDriveSystem:
             distance_factor: Fraction of a block to move (0.2 = 20% of a block)
         """
         logger.debug(f"Moving forward slightly ({distance_factor} block)")
-        self.advance_blocks(distance_factor)
+        # Calculate smaller encoder counts for slight movement
+        counts = int(ENCODER_COUNTS_PER_BLOCK * distance_factor * self.forward_factor)
+
+        # Use position_relative for consistent movement
+        self.left_motor.set_position_relative(counts)
+        self.right_motor.set_position_relative(counts)
+
+        # Use shorter timeout for small movements
+        self.wait_for_completion(timeout=2.0)
 
     def move_backward_slightly(self, distance_factor=0.2):
         """
@@ -161,122 +159,115 @@ class NewDriveSystem:
             distance_factor: Fraction of a block to move (0.2 = 20% of a block)
         """
         logger.debug(f"Moving backward slightly ({distance_factor} block)")
-        self.advance_blocks(-distance_factor)
+        # Use negative counts for backward movement
+        counts = -int(ENCODER_COUNTS_PER_BLOCK * distance_factor * self.forward_factor)
 
-    def _turn_90(self, direction, num_turns=1):
+        self.left_motor.set_position_relative(counts)
+        self.right_motor.set_position_relative(counts)
+
+        self.wait_for_completion(timeout=2.0)
+
+    def turn_90_left(self, times=1):
         """
-        Turn 90 degrees in the specified direction.
+        Turn left 90 degrees (or multiple of 90).
 
         Args:
-            direction: 'left' or 'right'
-            num_turns: Number of 90-degree turns to make
+            times: Number of 90-degree turns to make
 
         Returns:
             bool: True if successful, False otherwise
         """
-        logger.info(f"Turning {direction} {90 * num_turns} degrees")
-
-        # Get starting encoder positions
-        left_start = self.left_motor.get_encoder()
-        right_start = self.right_motor.get_encoder()
+        logger.info(f"Turning left {90 * times} degrees")
 
         # Calculate encoder counts for turn, adjusted by calibration factor
-        encoder_counts = int(TURN_ENCODER_COUNTS_90 * num_turns * self.turn_adjustment_factor)
+        counts = int(ENCODER_COUNTS_PER_TURN * times * self.turn_factor)
 
-        if direction == 'left':
-            left_target = left_start - encoder_counts
-            right_target = right_start + encoder_counts
-        else:  # right
-            left_target = left_start + encoder_counts
-            right_target = right_start - encoder_counts
-
-        # Set positions for both motors
-        self.left_motor.set_position(left_target)
-        self.right_motor.set_position(right_target)
+        # For left turn: left motor backward, right motor forward
+        self.left_motor.set_position_relative(-counts)
+        self.right_motor.set_position_relative(counts)
 
         # Wait for movement to complete
         result = self.wait_for_completion()
 
-        # Update orientation if successful
         if result:
-            directions = [NORTH, EAST, SOUTH, WEST]
+            # Update orientation
+            directions = [NORTH, WEST, SOUTH, EAST]  # Counter-clockwise order
             current_index = directions.index(self.orientation)
-
-            if direction == 'left':
-                new_index = (current_index - num_turns) % 4
-            else:  # right
-                new_index = (current_index + num_turns) % 4
-
+            new_index = (current_index + times) % 4
             self.orientation = directions[new_index]
             logger.debug(f"Orientation updated to: {self.orientation}")
 
-            # Log actual movement
-            left_final = self.left_motor.get_encoder()
-            right_final = self.right_motor.get_encoder()
-            logger.debug(
-                f"Turn completed: Left moved {left_final - left_start}, Right moved {right_final - right_start}")
+        return result
+
+    def turn_90_right(self, times=1):
+        """
+        Turn right 90 degrees (or multiple of 90).
+
+        Args:
+            times: Number of 90-degree turns to make
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        logger.info(f"Turning right {90 * times} degrees")
+
+        # Calculate encoder counts for turn, adjusted by calibration factor
+        counts = int(ENCODER_COUNTS_PER_TURN * times * self.turn_factor)
+
+        # For right turn: left motor forward, right motor backward
+        self.left_motor.set_position_relative(counts)
+        self.right_motor.set_position_relative(-counts)
+
+        # Wait for movement to complete
+        result = self.wait_for_completion()
+
+        if result:
+            # Update orientation
+            directions = [NORTH, EAST, SOUTH, WEST]  # Clockwise order
+            current_index = directions.index(self.orientation)
+            new_index = (current_index + times) % 4
+            self.orientation = directions[new_index]
+            logger.debug(f"Orientation updated to: {self.orientation}")
 
         return result
 
-    def turn_90_left(self, num_turns=1):
-        """Turn left 90 degrees (or multiple of 90)."""
-        return self._turn_90('left', num_turns)
-
-    def turn_90_right(self, num_turns=1):
-        """Turn right 90 degrees (or multiple of 90)."""
-        return self._turn_90('right', num_turns)
-
-    def turn_slightly_left(self, angle_factor=0.2):
+    def turn_slightly_left(self, angle_factor=0.1):
         """
         Turn slightly left without changing tracked orientation.
 
         Args:
-            angle_factor: Fraction of a 90-degree turn (0.2 = 18 degrees)
+            angle_factor: Fraction of a 90-degree turn (0.1 = 9 degrees)
         """
         logger.debug(f"Turning slightly left ({angle_factor * 90} degrees)")
 
-        # Get starting encoder positions
-        left_start = self.left_motor.get_encoder()
-        right_start = self.right_motor.get_encoder()
-
         # Calculate partial turn
-        encoder_counts = int(TURN_ENCODER_COUNTS_90 * angle_factor * self.turn_adjustment_factor)
+        counts = int(ENCODER_COUNTS_PER_TURN * angle_factor * self.turn_factor)
 
-        left_target = left_start - encoder_counts
-        right_target = right_start + encoder_counts
+        # Apply turn without updating orientation
+        self.left_motor.set_position_relative(-counts)
+        self.right_motor.set_position_relative(counts)
 
-        # Set positions for both motors
-        self.left_motor.set_position(left_target)
-        self.right_motor.set_position(right_target)
+        # Wait for movement to complete with shorter timeout
+        self.wait_for_completion(timeout=2.0)
 
-        # Wait for movement to complete
-        self.wait_for_completion(timeout=2.0)  # Shorter timeout for small movements
-
-    def turn_slightly_right(self, angle_factor=0.2):
+    def turn_slightly_right(self, angle_factor=0.1):
         """
         Turn slightly right without changing tracked orientation.
 
         Args:
-            angle_factor: Fraction of a 90-degree turn (0.2 = 18 degrees)
+            angle_factor: Fraction of a 90-degree turn (0.1 = 9 degrees)
         """
         logger.debug(f"Turning slightly right ({angle_factor * 90} degrees)")
 
-        # Get starting encoder positions
-        left_start = self.left_motor.get_encoder()
-        right_start = self.right_motor.get_encoder()
-
         # Calculate partial turn
-        encoder_counts = int(TURN_ENCODER_COUNTS_90 * angle_factor * self.turn_adjustment_factor)
+        counts = int(ENCODER_COUNTS_PER_TURN * angle_factor * self.turn_factor)
 
-        left_target = left_start + encoder_counts
-        right_target = right_start - encoder_counts
+        # Apply turn without updating orientation
+        self.left_motor.set_position_relative(counts)
+        self.right_motor.set_position_relative(-counts)
 
-        # Set positions for both motors
-        self.left_motor.set_position(left_target)
-        self.right_motor.set_position(right_target)
-
-        # Wait for movement to complete
-        self.wait_for_completion(timeout=2.0)  # Shorter timeout for small movements
+        # Wait for movement to complete with shorter timeout
+        self.wait_for_completion(timeout=2.0)
 
     def turn(self, target_direction):
         """
@@ -313,71 +304,44 @@ class NewDriveSystem:
 
         return result
 
-    def calibrate_movement(self, expected_distance, actual_distance):
+    def calibrate_forward_movement(self, actual_distance, expected_distance=1.0):
         """
-        Adjust forward movement calibration based on actual vs expected distance.
+        Calibrate forward movement based on actual vs expected distance.
 
         Args:
-            expected_distance: Expected distance in blocks
             actual_distance: Actual distance moved in blocks
+            expected_distance: Expected distance in blocks (default: 1 block)
         """
-        if actual_distance > 0:
-            new_factor = expected_distance / actual_distance
-            # Limit adjustment to reasonable range
-            new_factor = max(0.8, min(1.2, new_factor))
+        if actual_distance <= 0:
+            logger.warning("Cannot calibrate with zero or negative distance")
+            return
 
-            # Apply running average to smooth adjustments
-            self.forward_adjustment_factor = 0.7 * self.forward_adjustment_factor + 0.3 * new_factor
+        new_factor = expected_distance / actual_distance
 
-            logger.info(f"Forward calibration adjusted: {self.forward_adjustment_factor:.3f}")
+        # Limit adjustment to reasonable range (±20%)
+        new_factor = max(0.8, min(1.2, new_factor))
 
-    def calibrate_turning(self, num_tests=1):
+        # Apply moving average to smooth changes
+        self.forward_factor = 0.7 * self.forward_factor + 0.3 * new_factor
+        logger.info(f"Forward calibration adjusted: factor={self.forward_factor:.3f}")
+
+    def calibrate_turn_movement(self, actual_angle, expected_angle=90):
         """
-        Calibrate turning by performing test turns and measuring results.
+        Calibrate turn movement based on actual vs expected angle.
 
         Args:
-            num_tests: Number of test turns to perform
+            actual_angle: Actual angle turned in degrees
+            expected_angle: Expected angle in degrees (default: 90 degrees)
         """
-        logger.info("Starting turn calibration")
+        if actual_angle <= 0:
+            logger.warning("Cannot calibrate with zero or negative angle")
+            return
 
-        # Save original orientation
-        original_orientation = self.orientation
+        new_factor = expected_angle / actual_angle
 
-        # Perform a full 360-degree turn (4 right turns)
-        start_left = self.left_motor.get_encoder()
-        start_right = self.right_motor.get_encoder()
+        # Limit adjustment to reasonable range (±20%)
+        new_factor = max(0.8, min(1.2, new_factor))
 
-        for _ in range(num_tests):
-            self.turn_90_right(4)  # Should end up at the same orientation
-
-        end_left = self.left_motor.get_encoder()
-        end_right = self.right_motor.get_encoder()
-
-        # Calculate error in position
-        left_error = abs(end_left - start_left)
-        right_error = abs(end_right - start_right)
-
-        # Adjust turn calibration if needed
-        if left_error > MOTOR_ENCODER_TOLERANCE or right_error > MOTOR_ENCODER_TOLERANCE:
-            # Calculate actual encoder counts used per 90 degrees
-            total_counts_left = abs(end_left - start_left) / (4 * num_tests)
-            total_counts_right = abs(end_right - start_right) / (4 * num_tests)
-            avg_counts = (total_counts_left + total_counts_right) / 2
-
-            if avg_counts > 0:
-                # Adjust turn factor based on actual counts vs expected
-                new_factor = TURN_ENCODER_COUNTS_90 / avg_counts
-                # Limit adjustment to reasonable range
-                new_factor = max(0.8, min(1.2, new_factor))
-
-                # Apply running average to smooth adjustments
-                self.turn_adjustment_factor = 0.7 * self.turn_adjustment_factor + 0.3 * new_factor
-
-                logger.info(f"Turn calibration adjusted: {self.turn_adjustment_factor:.3f}")
-
-        # Ensure we've returned to the original orientation
-        if self.orientation != original_orientation:
-            logger.warning(f"Orientation changed during calibration: {original_orientation} -> {self.orientation}")
-            self.orientation = original_orientation
-
-        return self.turn_adjustment_factor
+        # Apply moving average to smooth changes
+        self.turn_factor = 0.7 * self.turn_factor + 0.3 * new_factor
+        logger.info(f"Turn calibration adjusted: factor={self.turn_factor:.3f}")
