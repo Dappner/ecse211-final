@@ -149,15 +149,6 @@ class FirefighterRobot:
         try:
             self.drive_system.turn(EAST)
             time.sleep(1)
-            self.drive_system.turn(SOUTH)
-            time.sleep(1)
-            self.drive_system.turn(WEST)
-            time.sleep(1)
-            self.drive_system.turn(SOUTH)
-            time.sleep(1)
-            self.drive_system.turn(EAST)
-            time.sleep(1)
-            self.drive_system.turn(NORTH)
         except Exception as e:
             logger.error(f"Error during turn testing: {e}")
         finally:
@@ -182,6 +173,7 @@ def main():
     """Main entry point for the firefighter robot mission."""
     parser = argparse.ArgumentParser(description='Firefighter Robot Control')
     parser.add_argument('--test-grid', action='store_true', help='Run grid alignment test')
+    parser.add_argument('--test-90', action='store_true', help='Run 90 test')
 
     args = parser.parse_args()
 
@@ -190,6 +182,8 @@ def main():
     try:
         if args.test_grid:
             robot.test_grid_alignment()
+        elif args.test_90:
+            robot.test_nineties()
         else:
             robot.run_mission()
     except KeyboardInterrupt:
