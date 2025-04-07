@@ -66,7 +66,7 @@ class SimpleMissionControl:
             # State machine
             if state == MissionState.INIT:
                 # Initialize and calibrate
-                self._calibrate_system()
+                # self._calibrate_system()
                 state = MissionState.HALLWAY
 
             elif state == MissionState.HALLWAY:
@@ -81,15 +81,15 @@ class SimpleMissionControl:
                 # Enter burning room
                 if self.navigation.enter_burning_room():
                     self.siren.stop()  # Stop siren after entering room
-                    state = MissionState.SWEEP
+                    state = MissionState.RETURN
                 else:
                     logger.error("Failed to enter burning room")
                     state = MissionState.RETURN
 
-            elif state == MissionState.SWEEP:
-                # Sweep burning room for fires
-                self._sweep_for_fires()
-                state = MissionState.RETURN
+            # elif state == MissionState.SWEEP:
+            #     # Sweep burning room for fires
+            #     self._sweep_for_fires()
+            #     state = MissionState.RETURN
 
             elif state == MissionState.RETURN:
                 # Return to base

@@ -29,7 +29,7 @@ class NewDriveSystem:
         self.forward_factor = 1.0
         self.turn_factor = 1.0
 
-        # Track motion state
+        # Track whether in motion (important because we are using relative position)
         self.is_moving = False
 
         # Reduced speed for precision movements (% of normal speed)
@@ -37,11 +37,11 @@ class NewDriveSystem:
 
         # Motor power settings
         self.normal_power = 70
-        self.precision_power = 40  # Lower power for more precise movements
+        self.precision_power = 40
 
         # Small movement timing constants (seconds)
-        self.small_turn_base_time = 0.15  # Base time for small turn movements
-        self.small_move_base_time = 0.25  # Base time for small forward/backward movements
+        self.small_turn_base_time = 0.15
+        self.small_move_base_time = 0.25
 
         # Set motor limits for safer operation
         self.set_motor_limits()
@@ -422,24 +422,3 @@ class NewDriveSystem:
         # Apply moving average to smooth changes
         self.forward_factor = 0.7 * self.forward_factor + 0.3 * new_factor
         logger.info(f"Forward calibration adjusted: factor={self.forward_factor:.3f}")
-
-    def calibrate_turn_movement(self, actual_angle, expected_angle=90):
-        """
-        Calibrate turn movement based on actual vs expected angle.
-
-        Args:
-            actual_angle: Actual angle turned in degrees
-            expected_angle: Expected angle in degrees (default: 90 degrees)
-        """
-        if actual_angle <= 0:
-            logger.warning("Cannot calibrate with zero or negative angle")
-            return
-
-        new_factor = expected_angle / actual_angle
-
-        # Limit adjustment to reasonable range (±20%)
-        new_factor = max(0.8, min(1.2, new_factor))
-
-        # Apply moving average to smooth changes
-        self.turn_factor = 0.7 * self.turn_factor + 0.3 * new_factor
-        logger.info(f"Turn calibration adjusted: factor={self.turn_factor:.3f}")

@@ -1,9 +1,8 @@
 import logging
 import time
 from src.constants import (
-    NORTH, EAST, SOUTH, WEST, DIRECTION_VECTORS,
+    NORTH, EAST, SOUTH, WEST,
     HALLWAY_PATH, BURNING_ROOM_ENTRY, BURNING_ROOM_SWEEP, RETURN_PATH,
-    COLOR_BLACK, COLOR_ORANGE, COLOR_RED,
     MAX_GRID_ALIGNMENT_ATTEMPTS, MAX_ENTRANCE_ALIGNMENT_ATTEMPTS
 )
 
@@ -57,6 +56,8 @@ class SimpleNavigation:
 
             # Pause between movements
             time.sleep(0.2)
+
+        self.drive.turn(NORTH)
 
         logger.info("Hallway navigation completed")
         return True
@@ -198,10 +199,6 @@ class SimpleNavigation:
         consecutive_stable_readings = 0
         last_position = None
 
-        # Use a smaller turn increment for finer control
-        TURN_INCREMENT = self.alignment_turn_speed  # Reduced from previous value
-        FORWARD_INCREMENT = self.alignment_forward_speed  # Reduced from previous value
-
         while attempts < MAX_GRID_ALIGNMENT_ATTEMPTS:
             # Get line detection status
             on_black, position = self.sensors.is_on_black_line()
@@ -225,29 +222,29 @@ class SimpleNavigation:
                         return True
                     elif position == "LEFT":
                         logger.info("Left sensor on grid line, turning slightly left")
-                        self.drive.turn_slightly_left(TURN_INCREMENT)
+                        self.drive.turn_slightly_left(self.alignment_turn_speed)
                     elif position == "RIGHT":
                         logger.info("Right sensor on grid line, turning slightly right")
                         # Reduce turn increment for finer control
-                        self.drive.turn_slightly_right(TURN_INCREMENT)
+                        self.drive.turn_slightly_right(self.alignment_turn_speed)
                 else:
                     # Neither sensor on grid line
                     logger.debug("No grid line detected, inching forward")
                     # Use smaller increment for searching
-                    self.drive.move_forward_slightly(FORWARD_INCREMENT)
+                    self.drive.move_forward_slightly(self.alignment_forward_speed)
 
-            # Always stop motors between adjustments to avoid momentum issues
+            # Stop motors between adjustments to avoid momentum issues
             self.drive.stop()
 
             # Pause slightly to let sensors and robot stabilize
-            time.sleep(0.15)
+            time.sleep(0.2)
 
             attempts += 1
 
             # If we've made several attempts without finding a line, try a slightly larger movement
             if attempts % 5 == 0 and not on_black:
                 logger.info(f"Made {attempts} attempts, trying larger search movement")
-                self.drive.move_forward_slightly(FORWARD_INCREMENT * 2)
+                self.drive.move_forward_slightly(self.alignment_forward_speed * 2)
 
         logger.warning(f"Grid alignment failed after {attempts} attempts")
         return False
@@ -263,10 +260,6 @@ class SimpleNavigation:
         attempts = 0
         consecutive_stable_readings = 0
         last_position = None
-
-        # Reduced increments for finer control
-        TURN_INCREMENT = self.alignment_turn_speed
-        FORWARD_INCREMENT = self.alignment_forward_speed
 
         while attempts < MAX_ENTRANCE_ALIGNMENT_ATTEMPTS:
             # Get entrance line detection
@@ -289,26 +282,25 @@ class SimpleNavigation:
                         return True
                     elif position == "LEFT":
                         logger.info("Left sensor detected entrance, turning slightly left")
-                        self.drive.turn_slightly_left(TURN_INCREMENT)
+                        self.drive.turn_slightly_left(self.alignment_turn_speed)
                         time.sleep(0.1)
                     elif position == "RIGHT":
                         logger.info("Right sensor detected entrance, turning slightly right")
-                        self.drive.turn_slightly_right(TURN_INCREMENT)
+                        self.drive.turn_slightly_right(self.alignment_turn_speed)
                         time.sleep(0.1)
                 else:
                     # Try forward and backward small movements in alternation
                     if attempts % 3 == 0:
                         logger.debug("No entrance detected, moving slightly forward")
-                        self.drive.move_forward_slightly(FORWARD_INCREMENT)
+                        self.drive.move_forward_slightly(self.alignment_forward_speed)
                     elif attempts % 3 == 1:
                         logger.debug("No entrance detected, moving slightly backward")
-                        self.drive.move_backward_slightly(FORWARD_INCREMENT)
+                        self.drive.move_backward_slightly(self.alignment_forward_speed)
                     else:
-                        # Alternate turn direction in search pattern
                         if attempts % 6 < 3:
-                            self.drive.turn_slightly_left(TURN_INCREMENT * 2)
+                            self.drive.turn_slightly_left(self.alignment_turn_speed * 2)
                         else:
-                            self.drive.turn_slightly_right(TURN_INCREMENT * 2)
+                            self.drive.turn_slightly_right(self.alignment_turn_speed * 2)
 
             # Always stop motors between adjustments
             self.drive.stop()
