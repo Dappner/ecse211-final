@@ -24,6 +24,10 @@ class SimpleNavigation:
         self.current_path_index = 0
         self.in_burning_room = False
 
+        self.alignment_turn_speed = 0.05  # Reduced turn speed for precision
+        self.alignment_forward_speed = 0.05  # Reduced forward speed for precision
+        self.consecutive_readings_needed = 2
+
         logger.info("Simple navigation system initialized")
 
     def follow_hallway_path(self):
@@ -184,85 +188,135 @@ class SimpleNavigation:
 
     def align_with_grid(self):
         """
-        Align robot with black grid lines using both color sensors.
+        Improved grid alignment function using gradual movements and stable readings.
+
         Returns:
             bool: True if successfully aligned, False otherwise
         """
-
-        logger.info("Aligning with grid...")
+        logger.info("Starting grid alignment...")
         attempts = 0
-        alignment_successful = False
+        consecutive_stable_readings = 0
+        last_position = None
+
+        # Use a smaller turn increment for finer control
+        TURN_INCREMENT = self.alignment_turn_speed  # Reduced from previous value
+        FORWARD_INCREMENT = self.alignment_forward_speed  # Reduced from previous value
 
         while attempts < MAX_GRID_ALIGNMENT_ATTEMPTS:
-            on_black, sensor_position = self.sensors.is_on_black_line()
+            # Get line detection status
+            on_black, position = self.sensors.is_on_black_line()
 
-            if on_black:  # If black line detected
-                if sensor_position == "BOTH":
-                    logger.info("Aligned with black grid line")
-                    self.drive.stop()
-                    alignment_successful = True
-                    break
-                elif sensor_position == "LEFT":
-                    logger.info("Left sensor on black, turning left slightly")
-                    self.drive.turn_slightly_left(0.1)
-                elif sensor_position == "RIGHT":
-                    logger.info("Left sensor on black, turning left slightly")
-                    self.drive.turn_slight_right(0.1)
+            # Verify reading stability by requiring consecutive matching readings
+            if position == last_position:
+                consecutive_stable_readings += 1
             else:
-                logger.debug("No black detected, moving forward slowly")
-                self.drive.move_forward_slightly(0.05)
+                consecutive_stable_readings = 0
 
+            last_position = position
+
+            # Only proceed with adjustment if we have stable readings
+            if consecutive_stable_readings >= self.consecutive_readings_needed:
+                if on_black:
+                    if position == "BOTH":
+                        logger.info("Both sensors aligned with grid line")
+                        self.drive.stop()
+                        # Back up slightly to center over the line
+                        self.drive.move_backward_slightly(0.2)
+                        return True
+                    elif position == "LEFT":
+                        logger.info("Left sensor on grid line, turning slightly left")
+                        self.drive.turn_slightly_left(TURN_INCREMENT)
+                    elif position == "RIGHT":
+                        logger.info("Right sensor on grid line, turning slightly right")
+                        # Reduce turn increment for finer control
+                        self.drive.turn_slightly_right(TURN_INCREMENT)
+                else:
+                    # Neither sensor on grid line
+                    logger.debug("No grid line detected, inching forward")
+                    # Use smaller increment for searching
+                    self.drive.move_forward_slightly(FORWARD_INCREMENT)
+
+            # Always stop motors between adjustments to avoid momentum issues
             self.drive.stop()
-            time.sleep(0.1)  # Short pause to let sensors settle
+
+            # Pause slightly to let sensors and robot stabilize
+            time.sleep(0.15)
+
             attempts += 1
 
-        # If alignment was successful, back up to center of block
-        if alignment_successful:
-            logger.info("Backing up to center of block")
-            self.drive.move_backward_slightly(0.3)
-            return True
-        else:
-            logger.warning(f"Failed to align with grid after {MAX_GRID_ALIGNMENT_ATTEMPTS} attempts")
-            return False
+            # If we've made several attempts without finding a line, try a slightly larger movement
+            if attempts % 5 == 0 and not on_black:
+                logger.info(f"Made {attempts} attempts, trying larger search movement")
+                self.drive.move_forward_slightly(FORWARD_INCREMENT * 2)
+
+        logger.warning(f"Grid alignment failed after {attempts} attempts")
+        return False
 
     def align_with_entrance(self):
-        """Attempt to align with the orange entrance line."""
-        logger.info("Trying to align with orange entrance line...")
+        """
+        Improved entrance alignment using more patient approach with smaller movements.
 
+        Returns:
+            bool: True if successfully aligned, False otherwise
+        """
+        logger.info("Attempting to align with room entrance (orange line)...")
         attempts = 0
+        consecutive_stable_readings = 0
+        last_position = None
+
+        # Reduced increments for finer control
+        TURN_INCREMENT = self.alignment_turn_speed
+        FORWARD_INCREMENT = self.alignment_forward_speed
 
         while attempts < MAX_ENTRANCE_ALIGNMENT_ATTEMPTS:
-            found_orange, side = self.sensors.check_for_entrance()
+            # Get entrance line detection
+            found_orange, position = self.sensors.check_for_entrance()
 
-            if found_orange:
-                if side == "LEFT":
-                    logger.info("Orange line detected on left, adjusting position")
-                    self.drive.turn_slightly_left(0.1)
-                    self.drive.move_forward_slightly(0.3)
-                elif side == "RIGHT":
-                    logger.info("Orange line detected on right, adjusting position")
-                    self.drive.turn_slightly_right(0.1)
-                    self.drive.move_forward_slightly(0.3)
-
-                # Check if both sensors are now on the orange line
-                found_orange_again, new_side = self.sensors.check_for_entrance()
-                if found_orange_again and new_side == "both":
-                    # Both sensors now on the line
-                    logger.info("Successfully aligned with orange entrance line")
-                    return True
+            # Check for reading stability
+            if position == last_position:
+                consecutive_stable_readings += 1
             else:
-                # No orange detected, make small search movements
-                logger.info("No orange line detected, searching...")
+                consecutive_stable_readings = 0
 
-                # Try alternating small turns / forward movements
-                if attempts % 2 == 0:
-                    self.drive.turn_slightly_left(0.1)
+            last_position = position
+
+            # Only proceed with adjustment if readings are stable
+            if consecutive_stable_readings >= self.consecutive_readings_needed:
+                if found_orange:
+                    if position == "BOTH":
+                        logger.info("Both sensors aligned with entrance")
+                        self.drive.stop()
+                        return True
+                    elif position == "LEFT":
+                        logger.info("Left sensor detected entrance, turning slightly left")
+                        self.drive.turn_slightly_left(TURN_INCREMENT)
+                        time.sleep(0.1)
+                    elif position == "RIGHT":
+                        logger.info("Right sensor detected entrance, turning slightly right")
+                        self.drive.turn_slightly_right(TURN_INCREMENT)
+                        time.sleep(0.1)
                 else:
-                    self.drive.turn_slightly_right(0.1)
+                    # Try forward and backward small movements in alternation
+                    if attempts % 3 == 0:
+                        logger.debug("No entrance detected, moving slightly forward")
+                        self.drive.move_forward_slightly(FORWARD_INCREMENT)
+                    elif attempts % 3 == 1:
+                        logger.debug("No entrance detected, moving slightly backward")
+                        self.drive.move_backward_slightly(FORWARD_INCREMENT)
+                    else:
+                        # Alternate turn direction in search pattern
+                        if attempts % 6 < 3:
+                            self.drive.turn_slightly_left(TURN_INCREMENT * 2)
+                        else:
+                            self.drive.turn_slightly_right(TURN_INCREMENT * 2)
 
-                self.drive.move_forward_slightly(0.2)
+            # Always stop motors between adjustments
+            self.drive.stop()
+
+            # Pause to let sensors stabilize
+            time.sleep(0.2)
 
             attempts += 1
 
-        logger.warning("Failed to align with entrance after multiple attempts")
+        logger.warning(f"Entrance alignment failed after {attempts} attempts")
         return False
