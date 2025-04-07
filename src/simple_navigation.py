@@ -4,7 +4,7 @@ from src.constants import (
     NORTH, EAST, SOUTH, WEST, DIRECTION_VECTORS,
     HALLWAY_PATH, BURNING_ROOM_ENTRY, BURNING_ROOM_SWEEP, RETURN_PATH,
     COLOR_BLACK, COLOR_ORANGE, COLOR_RED,
-    MAX_GRID_ALIGNMENT_ATTEMPTS
+    MAX_GRID_ALIGNMENT_ATTEMPTS, MAX_ENTRANCE_ALIGNMENT_ATTEMPTS
 )
 
 logger = logging.getLogger("navigation")
@@ -171,71 +171,78 @@ class SimpleNavigation:
             return False
 
         # After movement, check for grid alignment to stay on track
-        self._check_grid_alignment()
+        self.align_with_grid()
 
         return True
 
-    def _check_grid_alignment(self):
-        """
-        Check if the robot is on a grid line and adjust if necessary.
-        """
-        on_black, position = self.sensors.is_on_black_line()
-
-        if on_black:
-            logger.debug(f"Grid line detected on {position}")
-
-            # If both sensors are on the line, we're aligned
-            if position == "both":
-                logger.debug("Robot aligned with grid")
-                return True
-
-            # If only one sensor is on the line, adjust alignment
-            if position == "left":
-                logger.debug("Adjusting alignment - turning slightly right")
-                self.drive.turn_slightly_right(0.1)
-            elif position == "right":
-                logger.debug("Adjusting alignment - turning slightly left")
-                self.drive.turn_slightly_left(0.1)
-
-            return True
-
-        return False
-
-    def _align_with_entrance(self):
-        """
-        Try to align with the orange entrance line.
-
-        Returns:
-            bool: True if aligned, False otherwise
-        """
-        logger.info("Trying to align with orange entrance line")
+    def align_with_grid(self):
+        """Align robot with black grid lines using both color sensors."""
+        logger.info("Aligning with grid...")
 
         attempts = 0
+
         while attempts < MAX_GRID_ALIGNMENT_ATTEMPTS:
-            found_orange, position = self.sensors.check_for_entrance()
+            on_black = self.sensors.is_on_black_line()
+
+            if on_black[0]:  # First element is boolean success
+                if on_black[1] == "both":
+                    logger.info("Aligned with black grid line")
+                    self.drive.stop()
+                    return True
+                elif on_black[1] == "left":
+                    logger.info("Left sensor on black, turning left slightly")
+                    self.drive.turn_slightly_left(0.1)
+                elif on_black[1] == "right":
+                    logger.info("Right sensor on black, turning right slightly")
+                    self.drive.turn_slightly_right(0.1)
+            else:
+                logger.debug("No black detected, moving forward slowly")
+                self.drive.move_forward_slightly(0.2)
+
+            self.drive.stop()
+            attempts += 1
+
+        logger.warning(f"Failed to align with grid after {MAX_GRID_ALIGNMENT_ATTEMPTS} attempts")
+        return False
+
+    def align_with_entrance(self):
+        """Attempt to align with the orange entrance line."""
+        logger.info("Trying to align with orange entrance line...")
+
+        attempts = 0
+
+        while attempts < MAX_ENTRANCE_ALIGNMENT_ATTEMPTS:
+            found_orange, side = self.sensors.check_for_entrance()
 
             if found_orange:
-                if position == "BOTH":
-                    logger.info("Successfully aligned with entrance line")
-                    return True
-
-                elif position == "LEFT":
-                    logger.debug("Orange line on left sensor, turning slightly right")
-                    self.drive.turn_slightly_right(0.1)
-                elif position == "RIGHT":
-                    logger.debug("Orange line on right sensor, turning slightly left")
+                if side == "left":
+                    logger.info("Orange line detected on left, adjusting position")
                     self.drive.turn_slightly_left(0.1)
+                    self.drive.move_forward_slightly(0.3)
+                elif side == "right":
+                    logger.info("Orange line detected on right, adjusting position")
+                    self.drive.turn_slightly_right(0.1)
+                    self.drive.move_forward_slightly(0.3)
+
+                # Check if both sensors are now on the orange line
+                found_orange_again, new_side = self.sensors.check_for_entrance()
+                if found_orange_again and new_side == "both":
+                    # Both sensors now on the line
+                    logger.info("Successfully aligned with orange entrance line")
+                    return True
             else:
-                # No orange line detected, try small search pattern
+                # No orange detected, make small search movements
+                logger.info("No orange line detected, searching...")
+
+                # Try alternating small turns / forward movements
                 if attempts % 2 == 0:
-                    logger.debug("No orange line detected, moving slightly forward")
-                    self.drive.move_forward_slightly(0.1)
+                    self.drive.turn_slightly_left(0.1)
                 else:
-                    logger.debug("No orange line detected, moving slightly backward")
-                    self.drive.move_backward_slightly(0.1)
+                    self.drive.turn_slightly_right(0.1)
+
+                self.drive.move_forward_slightly(0.2)
 
             attempts += 1
-            time.sleep(0.2)  # Short pause between attempts
 
-        logger.warning("Failed to align with entrance line")
+        logger.warning("Failed to align with entrance after multiple attempts")
         return False

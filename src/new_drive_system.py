@@ -2,16 +2,12 @@ import logging
 import time
 from utils.brick import Motor
 from src.constants import (
-    NORTH, SOUTH, EAST, WEST,
+    NORTH, SOUTH, EAST, WEST, MOTOR_ENCODER_COUNTS_PER_BLOCK, MOTOR_ENCODER_TOLERANCE, TURN_ENCODER_COUNTS_90,
     MOTOR_DPS  # We'll still use the DPS value from constants
 )
 
 logger = logging.getLogger("encoder_drive")
 
-# Define encoder counts per movement, will be added to constants.py in the final implementation
-ENCODER_COUNTS_PER_BLOCK = 720  # Encoder counts for one block forward movement
-ENCODER_COUNTS_PER_TURN = 510  # Encoder counts for a 90-degree turn
-ENCODER_TOLERANCE = 20  # Acceptable error in encoder counts
 
 
 class NewDriveSystem:
@@ -100,7 +96,7 @@ class NewDriveSystem:
         logger.info(f"Moving {'forward' if num_blocks > 0 else 'backward'} {abs(num_blocks)} blocks")
 
         # Calculate encoder counts based on direction, adjusted by calibration factor
-        counts = int(ENCODER_COUNTS_PER_BLOCK * num_blocks * self.forward_factor)
+        counts = int(MOTOR_ENCODER_COUNTS_PER_BLOCK * num_blocks * self.forward_factor)
 
         # Track starting positions for verification
         left_start = self.left_motor.get_encoder()
@@ -127,7 +123,7 @@ class NewDriveSystem:
             left_error = abs(left_delta - counts)
             right_error = abs(right_delta - counts)
 
-            if left_error > ENCODER_TOLERANCE or right_error > ENCODER_TOLERANCE:
+            if left_error > MOTOR_ENCODER_TOLERANCE or right_error > MOTOR_ENCODER_TOLERANCE:
                 logger.warning(f"Movement error detected: Left error={left_error}, Right error={right_error}")
                 # Could adjust calibration here based on errors
 
@@ -142,7 +138,7 @@ class NewDriveSystem:
         """
         logger.debug(f"Moving forward slightly ({distance_factor} block)")
         # Calculate smaller encoder counts for slight movement
-        counts = int(ENCODER_COUNTS_PER_BLOCK * distance_factor * self.forward_factor)
+        counts = int(MOTOR_ENCODER_COUNTS_PER_BLOCK * distance_factor * self.forward_factor)
 
         # Use position_relative for consistent movement
         self.left_motor.set_position_relative(counts)
@@ -160,7 +156,7 @@ class NewDriveSystem:
         """
         logger.debug(f"Moving backward slightly ({distance_factor} block)")
         # Use negative counts for backward movement
-        counts = -int(ENCODER_COUNTS_PER_BLOCK * distance_factor * self.forward_factor)
+        counts = -int(MOTOR_ENCODER_COUNTS_PER_BLOCK * distance_factor * self.forward_factor)
 
         self.left_motor.set_position_relative(counts)
         self.right_motor.set_position_relative(counts)
@@ -180,7 +176,7 @@ class NewDriveSystem:
         logger.info(f"Turning left {90 * times} degrees")
 
         # Calculate encoder counts for turn, adjusted by calibration factor
-        counts = int(ENCODER_COUNTS_PER_TURN * times * self.turn_factor)
+        counts = int(TURN_ENCODER_COUNTS_90 * times * self.turn_factor)
 
         # For left turn: left motor backward, right motor forward
         self.left_motor.set_position_relative(-counts)
@@ -212,7 +208,7 @@ class NewDriveSystem:
         logger.info(f"Turning right {90 * times} degrees")
 
         # Calculate encoder counts for turn, adjusted by calibration factor
-        counts = int(ENCODER_COUNTS_PER_TURN * times * self.turn_factor)
+        counts = int(TURN_ENCODER_COUNTS_90 * times * self.turn_factor)
 
         # For right turn: left motor forward, right motor backward
         self.left_motor.set_position_relative(counts)
@@ -241,7 +237,7 @@ class NewDriveSystem:
         logger.debug(f"Turning slightly left ({angle_factor * 90} degrees)")
 
         # Calculate partial turn
-        counts = int(ENCODER_COUNTS_PER_TURN * angle_factor * self.turn_factor)
+        counts = int(TURN_ENCODER_COUNTS_90 * angle_factor * self.turn_factor)
 
         # Apply turn without updating orientation
         self.left_motor.set_position_relative(-counts)
@@ -260,7 +256,7 @@ class NewDriveSystem:
         logger.debug(f"Turning slightly right ({angle_factor * 90} degrees)")
 
         # Calculate partial turn
-        counts = int(ENCODER_COUNTS_PER_TURN * angle_factor * self.turn_factor)
+        counts = int(TURN_ENCODER_COUNTS_90 * angle_factor * self.turn_factor)
 
         # Apply turn without updating orientation
         self.left_motor.set_position_relative(counts)
