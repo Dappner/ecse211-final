@@ -3,7 +3,7 @@ import time
 from src.constants import (
     NORTH, EAST, SOUTH, WEST,
     HALLWAY_PATH, BURNING_ROOM_ENTRY, BURNING_ROOM_SWEEP, RETURN_PATH,
-    MAX_GRID_ALIGNMENT_ATTEMPTS, MAX_ENTRANCE_ALIGNMENT_ATTEMPTS
+    MAX_GRID_ALIGNMENT_ATTEMPTS, MAX_ENTRANCE_ALIGNMENT_ATTEMPTS, BLOCK_SIZE
 )
 
 logger = logging.getLogger("navigation")
@@ -19,12 +19,12 @@ class SimpleNavigation:
         self.drive = drive_system
         self.sensors = sensor_system
 
-        # Position tracking - simply track position in the hardcoded path
+        # Position tracking
+        self.current_position = [0, 0]  # Start at origin
         self.current_path_index = 0
         self.in_burning_room = False
 
-        self.alignment_turn_speed = 0.05  # Reduced turn speed for precision
-        self.alignment_forward_speed = 0.05  # Reduced forward speed for precision
+        self.calibration_complete = False
         self.consecutive_readings_needed = 2
 
         logger.info("Simple navigation system initialized")
@@ -41,31 +41,31 @@ class SimpleNavigation:
         # Start at beginning of path
         self.current_path_index = 0
 
-        # First move from (0,0) to (0,1)
-        prev_pos = HALLWAY_PATH[0]  # (0,0)
-        current_pos = HALLWAY_PATH[1]  # (0,1)
+        target_pos = HALLWAY_PATH[1]
 
-        logger.info(f"Moving from start position {prev_pos} to {current_pos}")
-        success = self._move_to_adjacent_position(prev_pos, current_pos)
+        logger.info(f"Moving from start position {self.current_position} to {target_pos}")
+        success = self.calibrate_first_movement()
         if not success:
-            logger.error(f"Failed to move to first position {current_pos}")
+            logger.error(f"Failed to move to first position {target_pos}")
             return False
 
+        self.current_position = list(HALLWAY_PATH[1])
         self.current_path_index = 1
         time.sleep(0.2)
 
         # Second move from (0,1) to (0,2)
-        prev_pos = HALLWAY_PATH[1]  # (0,1)
-        current_pos = HALLWAY_PATH[2]  # (0,2)
+        target_pos = HALLWAY_PATH[2]
 
-        logger.info(f"Moving to position {current_pos}")
-        success = self._move_to_adjacent_position(prev_pos, current_pos)
+        logger.info(f"Moving to position {target_pos}")
+        success = self.move_to_position(target_pos)
         if not success:
-            logger.error(f"Failed to move to second position {current_pos}")
+            logger.error(f"Failed to move to second position {target_pos}")
             return False
 
+        self.current_position = list(HALLWAY_PATH[2])
         self.current_path_index = 2
         time.sleep(0.2)
+
         # Turn to EAST
         self.drive.turn(EAST)
 
@@ -76,15 +76,15 @@ class SimpleNavigation:
 
         # Complete the rest of the hallway path
         for i in range(3, len(HALLWAY_PATH)):
-            prev_pos = HALLWAY_PATH[i - 1]
-            current_pos = HALLWAY_PATH[i]
+            target_pos = HALLWAY_PATH[i]
 
-            logger.info(f"Moving to position {current_pos}")
-            success = self._move_to_adjacent_position(prev_pos, current_pos)
+            logger.info(f"Moving to position {target_pos}")
+            success = self.move_to_position(target_pos)
             if not success:
-                logger.error(f"Failed to move from {prev_pos} to {current_pos}")
+                logger.error(f"Failed to move to position {target_pos}")
                 return False
 
+            self.current_position = list(target_pos)
             self.current_path_index = i
             time.sleep(0.2)
         # Turn north (facing burning room)
@@ -96,6 +96,78 @@ class SimpleNavigation:
             logger.warning("Entrance alignment failed, continuing with caution")
 
         logger.info("Hallway navigation completed")
+        return True
+
+    def calibrate_first_movement(self):
+        """
+        Perform distance-based calibration during the first movement.
+        Measures distance before and after moving one block, then adjusts parameters.
+
+        Returns:
+            bool: True if calibration was successful, False otherwise
+        """
+        logger.info("Starting first movement calibration")
+
+        # 1. Measure at first position
+        initial_distance = self.sensors.get_wall_distance()
+        if initial_distance is None:
+            logger.warning("Could not get initial distance reading")
+            initial_distance = 100  # Default assumption
+        else:
+            logger.info(f"Initial distance to wall: {initial_distance:.1f}cm")
+
+        # Initial encoder positions
+        left_pos_before = self.drive.left_motor.get_position()
+        right_pos_before = self.drive.right_motor.get_position()
+
+        # 2. Drive one block north
+        logger.info("Moving forward one block for calibration")
+        self.drive.turn(NORTH)  # Ensure we're facing north
+        self.drive.advance_blocks(1)
+
+        # 3. Measure final distance
+        final_distance = self.sensors.get_wall_distance()
+        if final_distance is None:
+            logger.warning("Could not get final distance reading")
+        else:
+            logger.info(f"Final distance to wall: {final_distance:.1f}cm")
+
+        # 4. Calculate adjustment factor if both measurements successful
+        if initial_distance is not None and final_distance is not None:
+            distance_moved = initial_distance - final_distance
+            logger.info(f"Distance moved: {distance_moved:.1f}cm (expected {BLOCK_SIZE}cm)")
+
+            # Only adjust if we have reasonable measurements
+            if distance_moved > 10:  # At least 10cm movement detected
+                actual_blocks_moved = distance_moved / BLOCK_SIZE
+                logger.info(f"Actual blocks moved based on distance: {actual_blocks_moved:.2f}")
+
+                # Apply reasonable adjustment factor
+                if 0.5 < actual_blocks_moved < 1.5:
+                    self._apply_calibration_adjustment(actual_blocks_moved)
+
+        # 5. Record encoder movement for diagnostics
+        left_pos_after = self.drive.left_motor.get_position()
+        right_pos_after = self.drive.right_motor.get_position()
+
+        left_delta = left_pos_after - left_pos_before
+        right_delta = right_pos_after - right_pos_before
+        encoder_avg = (abs(left_delta) + abs(right_delta)) / 2
+
+        logger.info(f"Encoder movement - Left: {left_delta}, Right: {right_delta}, Avg: {encoder_avg}")
+
+        # 6. Use grid align to align to grid
+        alignment_success = self.align_with_grid()
+
+        # If alignment successful, back up slightly to center in the block
+        if alignment_success:
+            logger.info("Backing up slightly to center in grid block")
+            #TODO: Might have to be played with (value wise)
+            self.drive.move_backward_slightly(0.3)
+
+        self.calibration_complete = True
+        logger.info("First movement calibration complete")
+
         return True
 
     def enter_burning_room(self):
@@ -137,14 +209,16 @@ class SimpleNavigation:
 
         # If in burning room, first exit to hallway
         if self.in_burning_room:
-            # First move to burning room entrance
-            current_pos = BURNING_ROOM_SWEEP[-1]  # Last position in sweep
-            success = self._move_to_adjacent_position(current_pos, BURNING_ROOM_ENTRY)
-            if not success:
-                logger.error("Failed to return to burning room entrance")
-                return False
+            # First move to burning room entrance if not already there
+            if self.current_position != list(BURNING_ROOM_ENTRY):
+                logger.info(f"Moving to burning room entry {BURNING_ROOM_ENTRY}")
+                success = self.move_to_position(BURNING_ROOM_ENTRY)
+                if not success:
+                    logger.error("Failed to return to burning room entrance")
+                    return False
 
             # Exit to hallway (move one block south)
+            logger.info("Exiting burning room to hallway")
             self.drive.turn(SOUTH)
             success = self.drive.advance_blocks(1)
             if not success:
@@ -152,72 +226,29 @@ class SimpleNavigation:
                 return False
 
             self.in_burning_room = False
+            self.current_position = list(HALLWAY_PATH[-1])  # Update position to entrance
+
+        # We should now be at RETURN_PATH[0], verify
+        if self.current_position != list(RETURN_PATH[0]):
+            logger.warning(f"Position mismatch: expected {RETURN_PATH[0]}, got {self.current_position}")
+            # Update position anyway to continue return path
+            self.current_position = list(RETURN_PATH[0])
 
         # Follow return path (reverse of hallway path)
-        current_pos = RETURN_PATH[0]
-
-        for next_pos in RETURN_PATH[1:]:
-            success = self._move_to_adjacent_position(current_pos, next_pos)
+        for i, next_pos in enumerate(RETURN_PATH[1:], 1):
+            logger.info(f"Return path step {i}: moving to {next_pos}")
+            success = self.move_to_position(next_pos)
             if not success:
-                logger.error(f"Failed to move from {current_pos} to {next_pos}")
+                logger.error(f"Failed to move to position {next_pos}")
                 return False
 
-            # Update current position for next move
-            current_pos = next_pos
+            # Update current position
+            self.current_position = list(next_pos)
 
             # Pause between movements
             time.sleep(0.2)
 
         logger.info("Successfully returned to base")
-        return True
-
-    def _move_to_adjacent_position(self, start_pos, end_pos):
-        """
-        Move from one grid position to an adjacent grid position.
-
-        Args:
-            start_pos: (x, y) start position
-            end_pos: (x, y) end position
-
-        Returns:
-            bool: True if successful, False otherwise
-        """
-        # Calculate direction
-        dx = end_pos[0] - start_pos[0]
-        dy = end_pos[1] - start_pos[1]
-
-        # Determine orientation
-        orientation = None
-        if dx == 1 and dy == 0:
-            orientation = EAST
-        elif dx == -1 and dy == 0:
-            orientation = WEST
-        elif dx == 0 and dy == 1:
-            orientation = NORTH
-        elif dx == 0 and dy == -1:
-            orientation = SOUTH
-
-        if orientation is None:
-            logger.error(f"Invalid move from {start_pos} to {end_pos} - not adjacent")
-            return False
-
-        # Check if a turn is needed
-        turn_performed = orientation != self.drive.orientation
-
-        # Turn to face the right direction
-        self.drive.turn(orientation)
-
-        # If we turned, allow a small pause for stability
-        if turn_performed:
-            time.sleep(0.2)
-
-        # Move forward one block
-        success = self.drive.advance_blocks(1)
-
-        if not success:
-            logger.error(f"Failed to advance from {start_pos} to {end_pos}")
-            return False
-
         return True
 
     def align_with_grid(self):
@@ -319,3 +350,79 @@ class SimpleNavigation:
 
         logger.warning(f"Entrance alignment failed after {attempts} attempts")
         return False
+
+    def _apply_calibration_adjustment(self, actual_blocks_moved):
+        """
+        Apply calibration adjustment based on actual movement.
+
+        Args:
+            actual_blocks_moved: Measured movement in block units
+        """
+        # Calculate adjustment factor (inverse of actual movement)
+        adjustment_factor = 1.0 / actual_blocks_moved
+
+        # Limit adjustment to reasonable range (±20%)
+        adjustment_factor = max(0.8, min(1.2, adjustment_factor))
+
+        # Store adjustment factor for future reference
+        self.forward_adjustment_factor = adjustment_factor
+
+        # Apply to drive system parameters if available
+        if hasattr(self.drive, 'forward_time_per_block'):
+            old_forward_time = self.drive.forward_time_per_block
+            self.drive.forward_time_per_block = old_forward_time * adjustment_factor
+            logger.info(
+                f"Adjusted forward time: {self.drive.forward_time_per_block:.2f}s (factor: {adjustment_factor:.2f})")
+
+        # Also adjust turn times proportionally
+        if hasattr(self.drive, 'turn_90_time'):
+            old_turn_time = self.drive.turn_90_time
+            self.drive.turn_90_time = old_turn_time * adjustment_factor
+            logger.info(f"Adjusted turn time: {self.drive.turn_90_time:.2f}s (factor: {adjustment_factor:.2f})")
+
+    def move_to_position(self, target_pos):
+        """
+        Move from current position to an adjacent grid position.
+
+        Args:
+            target_pos: (x, y) target position
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        # Calculate direction
+        dx = target_pos[0] - self.current_position[0]
+        dy = target_pos[1] - self.current_position[1]
+
+        # Check if move is valid (only one grid cell in one direction)
+        if abs(dx) + abs(dy) != 1:
+            logger.error(f"Invalid move from {self.current_position} to {target_pos} - not adjacent")
+            return False
+
+        # Determine orientation
+        orientation = None
+        if dx == 1 and dy == 0:
+            orientation = EAST
+        elif dx == -1 and dy == 0:
+            orientation = WEST
+        elif dx == 0 and dy == 1:
+            orientation = NORTH
+        elif dx == 0 and dy == -1:
+            orientation = SOUTH
+
+        # Turn to face the right direction
+        self.drive.turn(orientation)
+
+        # Allow a small pause for stability after turning
+        time.sleep(0.2)
+
+        # Move forward one block
+        success = self.drive.advance_blocks(1)
+
+        if success:
+            # Update position on success
+            self.current_position = list(target_pos)
+            return True
+        else:
+            logger.error(f"Failed to advance to {target_pos}")
+            return False

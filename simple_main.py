@@ -149,9 +149,8 @@ class FirefighterRobot:
 
         # Follow first few steps of hallway path
         for i in range(min(3, len(HALLWAY_PATH) - 1)):
-            prev_pos = HALLWAY_PATH[i]
             next_pos = HALLWAY_PATH[i + 1]
-            self.navigation._move_to_adjacent_position(prev_pos, next_pos)
+            self.navigation.move_to_position(next_pos)
             time.sleep(1)
 
         self.siren.stop()
