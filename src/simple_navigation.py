@@ -67,7 +67,7 @@ class SimpleNavigation:
         logger.info("Attempting to enter burning room")
 
         # First try to align with the orange entrance line
-        aligned = self._align_with_entrance()
+        aligned = self.align_with_entrance()
         if not aligned:
             logger.warning("Could not align with entrance")
             # Try direct move anyway
@@ -166,12 +166,10 @@ class SimpleNavigation:
         # Turn to face the right direction
         self.drive.turn(orientation)
 
-        # Track that we just performed a turn if direction changed
-        self._last_operation_was_turn = turn_performed
-
         # If we turned, allow a small pause for stability
         if turn_performed:
             time.sleep(0.2)
+            self.align_with_grid()
 
         # Move forward one block
         success = self.drive.advance_blocks(1)
@@ -181,8 +179,6 @@ class SimpleNavigation:
             return False
 
         # After movement, check for grid alignment to stay on track, but only if we turned
-        if turn_performed:
-            self.align_with_grid()
 
         return True
 
@@ -201,20 +197,20 @@ class SimpleNavigation:
             on_black, sensor_position = self.sensors.is_on_black_line()
 
             if on_black:  # If black line detected
-                if sensor_position == "both":
+                if sensor_position == "BOTH":
                     logger.info("Aligned with black grid line")
                     self.drive.stop()
                     alignment_successful = True
                     break
-                elif sensor_position == "left":
-                    logger.info("Left sensor on black, turning right slightly")
-                    self.drive.turn_slightly_right(0.1)
-                elif sensor_position == "right":
+                elif sensor_position == "LEFT":
                     logger.info("Left sensor on black, turning left slightly")
                     self.drive.turn_slightly_left(0.1)
+                elif sensor_position == "RIGHT":
+                    logger.info("Left sensor on black, turning left slightly")
+                    self.drive.turn_slight_right(0.1)
             else:
                 logger.debug("No black detected, moving forward slowly")
-                self.drive.move_forward_slightly(0.1)
+                self.drive.move_forward_slightly(0.05)
 
             self.drive.stop()
             time.sleep(0.1)  # Short pause to let sensors settle

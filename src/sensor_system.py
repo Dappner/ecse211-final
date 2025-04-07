@@ -97,7 +97,7 @@ class SensorSystem:
         if left_samples and right_samples:
             # Set black threshold as 40% of average brightness
             avg_brightness = (sum(left_samples) + sum(right_samples)) / (len(left_samples) + len(right_samples))
-            self.black_threshold = int(avg_brightness * 0.4)
+            self.black_threshold = int(avg_brightness * 0v)
             logger.info(f"Black detection threshold set to: {self.black_threshold}")
 
     def track_grid_line(self, samples=5):

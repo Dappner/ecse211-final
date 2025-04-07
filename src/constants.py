@@ -19,10 +19,10 @@ MOTOR_DPS = 360  # Degrees per second for speed-based control
 TURN_DPS = 180
 
 # NEW CONSTANTS WITH ENCODER AND SET RELATIVE POSITION
-MOTOR_ENCODER_COUNTS_PER_BLOCK = 720
+MOTOR_ENCODER_COUNTS_PER_BLOCK = 895
 
 # Encoder counts for a 90-degree turn
-TURN_ENCODER_COUNTS_90 = 480  # Approximate encoder counts for a 90-degree turn
+TURN_ENCODER_COUNTS_90 = 515  # Approximate encoder counts for a 90-degree turn
 
 # Tolerance for encoder position verification
 MOTOR_ENCODER_TOLERANCE = 50

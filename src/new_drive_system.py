@@ -65,7 +65,7 @@ class NewDriveSystem:
         start_time = time.time()
 
         # Initially give motors time to start moving
-        time.sleep(0.1)
+        time.sleep(0.2)
 
         # Busy wait with a small sleep to reduce CPU usage
         while time.time() - start_time < timeout:
