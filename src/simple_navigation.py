@@ -1,0 +1,241 @@
+import logging
+import time
+from src.constants import (
+    NORTH, EAST, SOUTH, WEST, DIRECTION_VECTORS,
+    HALLWAY_PATH, BURNING_ROOM_ENTRY, BURNING_ROOM_SWEEP, RETURN_PATH,
+    COLOR_BLACK, COLOR_ORANGE, COLOR_RED,
+    MAX_GRID_ALIGNMENT_ATTEMPTS
+)
+
+logger = logging.getLogger("navigation")
+
+
+class SimpleNavigation:
+    """
+    Simplified navigation system that uses hardcoded paths and minimal sensor feedback.
+    Focuses on the core mission of navigating to and from the burning room.
+    """
+
+    def __init__(self, drive_system, sensor_system):
+        self.drive = drive_system
+        self.sensors = sensor_system
+
+        # Position tracking - simply track position in the hardcoded path
+        self.current_path_index = 0
+        self.in_burning_room = False
+
+        logger.info("Simple navigation system initialized")
+
+    def follow_hallway_path(self):
+        """
+        Navigate through the hallway path to the room entrance.
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        logger.info("Starting hallway navigation")
+
+        # Start at beginning of path
+        self.current_path_index = 0
+
+        # Navigate each segment of the hallway path
+        for i in range(1, len(HALLWAY_PATH)):
+            prev_pos = HALLWAY_PATH[i - 1]
+            current_pos = HALLWAY_PATH[i]
+
+            success = self._move_to_adjacent_position(prev_pos, current_pos)
+            if not success:
+                logger.error(f"Failed to move from {prev_pos} to {current_pos}")
+                return False
+
+            # Update path index
+            self.current_path_index = i
+
+            # Pause between movements
+            time.sleep(0.2)
+
+        logger.info("Hallway navigation completed")
+        return True
+
+    def enter_burning_room(self):
+        """
+        Enter the burning room from the entrance position.
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        logger.info("Attempting to enter burning room")
+
+        # First try to align with the orange entrance line
+        aligned = self._align_with_entrance()
+        if not aligned:
+            logger.warning("Could not align with entrance")
+            # Try direct move anyway
+
+        # Enter room (move one block north)
+        logger.info("Moving into burning room")
+        self.drive.turn(NORTH)
+        success = self.drive.advance_blocks(1)
+
+        if success:
+            self.in_burning_room = True
+            logger.info("Successfully entered burning room")
+        else:
+            logger.error("Failed to enter burning room")
+
+        return success
+
+    def return_to_base(self):
+        """
+        Navigate from current position back to base.
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        logger.info("Starting return to base")
+
+        # If in burning room, first exit to hallway
+        if self.in_burning_room:
+            # First move to burning room entrance
+            current_pos = BURNING_ROOM_SWEEP[-1]  # Last position in sweep
+            success = self._move_to_adjacent_position(current_pos, BURNING_ROOM_ENTRY)
+            if not success:
+                logger.error("Failed to return to burning room entrance")
+                return False
+
+            # Exit to hallway (move one block south)
+            self.drive.turn(SOUTH)
+            success = self.drive.advance_blocks(1)
+            if not success:
+                logger.error("Failed to exit burning room")
+                return False
+
+            self.in_burning_room = False
+
+        # Follow return path (reverse of hallway path)
+        current_pos = RETURN_PATH[0]
+
+        for next_pos in RETURN_PATH[1:]:
+            success = self._move_to_adjacent_position(current_pos, next_pos)
+            if not success:
+                logger.error(f"Failed to move from {current_pos} to {next_pos}")
+                return False
+
+            # Update current position for next move
+            current_pos = next_pos
+
+            # Pause between movements
+            time.sleep(0.2)
+
+        logger.info("Successfully returned to base")
+        return True
+
+    def _move_to_adjacent_position(self, start_pos, end_pos):
+        """
+        Move from one grid position to an adjacent grid position.
+
+        Args:
+            start_pos: (x, y) start position
+            end_pos: (x, y) end position
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        # Calculate direction
+        dx = end_pos[0] - start_pos[0]
+        dy = end_pos[1] - start_pos[1]
+
+        # Determine orientation
+        orientation = None
+        if dx == 1 and dy == 0:
+            orientation = EAST
+        elif dx == -1 and dy == 0:
+            orientation = WEST
+        elif dx == 0 and dy == 1:
+            orientation = NORTH
+        elif dx == 0 and dy == -1:
+            orientation = SOUTH
+
+        if orientation is None:
+            logger.error(f"Invalid move from {start_pos} to {end_pos} - not adjacent")
+            return False
+
+        # Turn to face the right direction
+        self.drive.turn(orientation)
+
+        # Move forward one block
+        success = self.drive.advance_blocks(1)
+
+        if not success:
+            logger.error(f"Failed to advance from {start_pos} to {end_pos}")
+            return False
+
+        # After movement, check for grid alignment to stay on track
+        self._check_grid_alignment()
+
+        return True
+
+    def _check_grid_alignment(self):
+        """
+        Check if the robot is on a grid line and adjust if necessary.
+        """
+        on_black, position = self.sensors.is_on_black_line()
+
+        if on_black:
+            logger.debug(f"Grid line detected on {position}")
+
+            # If both sensors are on the line, we're aligned
+            if position == "both":
+                logger.debug("Robot aligned with grid")
+                return True
+
+            # If only one sensor is on the line, adjust alignment
+            if position == "left":
+                logger.debug("Adjusting alignment - turning slightly right")
+                self.drive.turn_slightly_right(0.1)
+            elif position == "right":
+                logger.debug("Adjusting alignment - turning slightly left")
+                self.drive.turn_slightly_left(0.1)
+
+            return True
+
+        return False
+
+    def _align_with_entrance(self):
+        """
+        Try to align with the orange entrance line.
+
+        Returns:
+            bool: True if aligned, False otherwise
+        """
+        logger.info("Trying to align with orange entrance line")
+
+        attempts = 0
+        while attempts < MAX_GRID_ALIGNMENT_ATTEMPTS:
+            found_orange, position = self.sensors.check_for_entrance()
+
+            if found_orange:
+                if position == "BOTH":
+                    logger.info("Successfully aligned with entrance line")
+                    return True
+
+                elif position == "LEFT":
+                    logger.debug("Orange line on left sensor, turning slightly right")
+                    self.drive.turn_slightly_right(0.1)
+                elif position == "RIGHT":
+                    logger.debug("Orange line on right sensor, turning slightly left")
+                    self.drive.turn_slightly_left(0.1)
+            else:
+                # No orange line detected, try small search pattern
+                if attempts % 2 == 0:
+                    logger.debug("No orange line detected, moving slightly forward")
+                    self.drive.move_forward_slightly(0.1)
+                else:
+                    logger.debug("No orange line detected, moving slightly backward")
+                    self.drive.move_backward_slightly(0.1)
+
+            attempts += 1
+            time.sleep(0.2)  # Short pause between attempts
+
+        logger.warning("Failed to align with entrance line")
+        return False
