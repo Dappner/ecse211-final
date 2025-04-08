@@ -22,21 +22,23 @@ class SirenController:
         """Create the siren sound using the Sound module"""
         # Create high pitch siren sound
         # TODO: Make sound like siren.
-        self.high_siren = Sound(
-            duration=1.5,  # Longer duration for better wail effect
+        self.siren_high = Sound(
+            duration=3,  # Shorter duration for the wailing effect
             volume=95,  # Loud volume for emergency alerts
-            pitch="C6",  # High pitch base note
+            pitch="D6",  # High pitch note
             cutoff=0.05,  # Slight softening at start/end
             fs=16000,  # Higher sample rate for better quality
-            mod_f=2,  # Frequency modulation rate for wailing effect
-            mod_k=20,  # Stronger frequency modulation for authentic sound
+            mod_f=6,  # Faster frequency modulation for more realism
+            mod_k=25,  # Stronger frequency modulation for authentic sound
             amp_f=12,  # Amplitude modulation for wobble
-            amp_ka=0.3,  # Medium amplitude variation
-            amp_ac=0.8  # Overall amplitude control
+            amp_ka=0.4,  # Medium amplitude variation
+            amp_ac=0.9  # Overall amplitude control
         )
 
-        # Create the siren using just the single modulated sound
-        self.siren = Song([self.high_siren])
+        # Create the siren by combining high and low tones with brief silence in between
+        self.siren = Song([
+            self.siren_high,
+        ])
         self.siren.compile()
         logger.info("Fire siren created with single modulated tone")
 

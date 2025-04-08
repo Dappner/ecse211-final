@@ -7,15 +7,15 @@ import time
 import argparse
 from utils.brick import Motor, EV3ColorSensor, EV3UltrasonicSensor, TouchSensor, wait_ready_sensors
 
-from src.new_drive_system import NewDriveSystem
-from src.simple_navigation import SimpleNavigation
-from src.fire_extinguisher import FireExtinguisher
-from src.simple_mission_control import SimpleMissionControl
-from src.siren_controller import SirenController
-from src.sensor_system import SensorSystem
+from simple_src.new_drive_system import NewDriveSystem
+from simple_src.simple_navigation import SimpleNavigation
+from simple_src.fire_extinguisher import FireExtinguisher
+from simple_src.simple_mission_control import SimpleMissionControl
+from simple_src.siren_controller import SirenController
+from simple_src.sensor_system import SensorSystem
 
 # Import constants
-from src.constants import (
+from simple_src.constants import (
     LEFT_MOTOR_PORT, RIGHT_MOTOR_PORT, DROPPER_MOTOR_PORT,
     LEFT_COLOR_PORT, RIGHT_COLOR_PORT, ULTRASONIC_PORT, TOUCH_PORT, HALLWAY_PATH
 )

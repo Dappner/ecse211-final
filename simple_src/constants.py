@@ -63,36 +63,12 @@ HALLWAY_PATH = [(0, 0), (0, 1), (0, 2), (1, 2), (2, 2), (3, 2)]
 ENTRANCE = (3, 2)  # Pos before burning room
 BURNING_ROOM_ENTRY = (3, 3)  # First square of burning room
 
-# SWeep of burning room (left to right circle)
-BURNING_ROOM_SWEEP = [(2, 3), (2, 4), (3, 4), (4, 4), (4, 3), (3, 3), (2, 3)]
-
 # Return path (opposite of path there)
 RETURN_PATH = HALLWAY_PATH[::-1]
 
-VALID_NEIGHBORS = {}
-for y in range(GRID_HEIGHT):
-    for x in range(GRID_WIDTH):
-        if GRID_MAP[y][x] > 0:  # If valid position
-            neighbors = []
-            # Check all four directions
-            for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
-                nx, ny = x + dx, y + dy
-                if (0 <= nx < GRID_WIDTH and 0 <= ny < GRID_HEIGHT and
-                        GRID_MAP[ny][nx] > 0):
-                    neighbors.append((nx, ny))
-            VALID_NEIGHBORS[(x, y)] = neighbors
-
-# ============= Monte Carlo Localization Constants =============
-# Number of particles for Monte Carlo localization
-MCL_PARTICLE_COUNT = 100
-# Standard deviation for motion model (in grid units)
-MCL_MOTION_NOISE = 0.2
-# Standard deviation for sensor model (in cm)
-MCL_SENSOR_NOISE = 5.0
-# Weight threshold for resampling
-MCL_RESAMPLING_THRESHOLD = 0.5
 
 # ============= Calibration Constants =============
+
 MAX_GRID_ALIGNMENT_ATTEMPTS = 25
 MAX_ENTRANCE_ALIGNMENT_ATTEMPTS = 5
 
