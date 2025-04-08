@@ -426,7 +426,7 @@ class SensorSystem:
         Returns:
             tuple: (on_line, sensor_position)
                 - on_line: True if any sensor is on a black line, False otherwise
-                - sensor_position: "both", "left", "right", or None
+                - sensor_position: "BOTH", "LEFT", "RIGHT", or None
         """
         # Take multiple readings for reliability
         left_vals = []
@@ -451,11 +451,11 @@ class SensorSystem:
             f"Black threshold: {self.black_threshold}, Left on black: {left_on_black}, Right on black: {right_on_black}")
 
         if left_on_black and right_on_black:
-            return True, "both"
+            return True, "BOTH"
         elif left_on_black:
-            return True, "left"
+            return True, "LEFT"
         elif right_on_black:
-            return True, "right"
+            return True, "RIGHT"
         else:
             return False, None
 
