@@ -69,3 +69,21 @@ class SirenController:
             if not self.siren_active:
                 break
 
+
+def test_volume():
+    siren = SirenController()
+    siren.start()
+    time.sleep(2)
+    siren.stop()
+    # Sound(volume=0.001).play().wait_done()
+    # while (
+    #     (ans := input("Enter volume (100-0): "))
+    #     and ans.count(".") <= 1
+    #     and ans.replace(".", "").isnumeric()
+    # ):
+    #     Sound(volume=float(ans)).play().wait_done()
+
+
+if __name__ == "__main__":
+    test_volume()
+

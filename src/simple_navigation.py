@@ -3,7 +3,8 @@ import time
 from src.constants import (
     NORTH, EAST, SOUTH, WEST,
     HALLWAY_PATH, BURNING_ROOM_ENTRY, BURNING_ROOM_SWEEP, RETURN_PATH,
-    MAX_GRID_ALIGNMENT_ATTEMPTS, MAX_ENTRANCE_ALIGNMENT_ATTEMPTS, BLOCK_SIZE
+    MAX_GRID_ALIGNMENT_ATTEMPTS, MAX_ENTRANCE_ALIGNMENT_ATTEMPTS, BLOCK_SIZE,
+    COLOR_BLACK
 )
 
 logger = logging.getLogger("navigation")
@@ -164,7 +165,7 @@ class SimpleNavigation:
             logger.info("Backing up slightly to center in grid block")
             #TODO: Might have to be played with (value wise)
             self.drive.move_backward_slightly(0.3)
-
+        
         self.calibration_complete = True
         logger.info("First movement calibration complete")
 
@@ -265,13 +266,14 @@ class SimpleNavigation:
 
         while attempts < MAX_GRID_ALIGNMENT_ATTEMPTS:
             # Get line detection status
-            on_black, position = self.sensors.is_on_black_line()
+            on_black, position = self.sensors.check_for_color(COLOR_BLACK)
 
             # Verify reading stability by requiring consecutive matching readings
             if position == last_position:
                 consecutive_stable_readings += 1
             else:
                 consecutive_stable_readings = 0
+            logger.info(f"Consecutive stable readings: {consecutive_stable_readings}")
 
             last_position = position
 

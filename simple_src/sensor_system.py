@@ -52,8 +52,6 @@ class SensorSystem:
 
         # Sensor data filtering
         self.distance_history = deque(maxlen=5)  # Last 5 distance readings
-        self.left_color_history = deque(maxlen=NB_COLOR_SAMPLING)  # Recent color detections
-        self.right_color_history = deque(maxlen=NB_COLOR_SAMPLING)  # Recent color detections
 
         # Sensor calibration values
         self.ultrasonic_offset = 0  # Adjustment for ultrasonic readings
@@ -190,11 +188,6 @@ class SensorSystem:
         Returns:
             str: Detected color, or None if unreliable
         """
-        # Clear history if it's getting too inconsistent
-        if len(self.left_color_history) > NB_COLOR_SAMPLING // 2:
-            if len(set(self.left_color_history)) > NB_COLOR_SAMPLING // 2:  # Too many different colors
-                self.left_color_history.clear()
-
         # Get multiple RGB samples
         rgb_values = []
         for _ in range(NB_COLOR_SAMPLING):
@@ -211,26 +204,12 @@ class SensorSystem:
             color_match = colo.match_unknown_color(rgb_values)
             confidence = self._calculate_color_confidence(rgb_values, color_match)
 
-            # Add to history
-            self.left_color_history.append(color_match)
-
             # Only return color if confidence is high enough
             if confidence >= self.color_confidence_threshold:
                 logger.debug(f"Left color: {color_match} (confidence: {confidence:.2f})")
                 return color_match
             else:
-                # Use majority voting from history
-                if self.left_color_history:
-                    color_counts = {}
-                    for color in self.left_color_history:
-                        color_counts[color] = color_counts.get(color, 0) + 1
-                    majority_color = max(color_counts, key=color_counts.get)
-                    majority_count = color_counts[majority_color]
-
-                    if majority_count >= len(self.left_color_history) * 0.6:  # At least 60% agreement
-                        logger.debug(f"Left color (history majority): {majority_color}")
-                        return majority_color
-
+                
                 logger.debug(f"Left color detection uncertain: {color_match} (confidence: {confidence:.2f})")
                 return None
         except Exception as e:
@@ -244,11 +223,6 @@ class SensorSystem:
         Returns:
             str: Detected color, or None if unreliable
         """
-        # Same approach as get_color_left
-        if len(self.right_color_history) > NB_COLOR_SAMPLING // 2:
-            if len(set(self.right_color_history)) > NB_COLOR_SAMPLING // 2:  # Too many different colors
-                self.right_color_history.clear()
-
         rgb_values = []
         for _ in range(NB_COLOR_SAMPLING):
             rgb = self.right_color.get_rgb()
@@ -263,22 +237,12 @@ class SensorSystem:
             color_match = colo.match_unknown_color(rgb_values)
             confidence = self._calculate_color_confidence(rgb_values, color_match)
 
-            self.right_color_history.append(color_match)
 
             if confidence >= self.color_confidence_threshold:
                 logger.debug(f"Right color: {color_match} (confidence: {confidence:.2f})")
                 return color_match
             else:
-                if self.right_color_history:
-                    color_counts = {}
-                    for color in self.right_color_history:
-                        color_counts[color] = color_counts.get(color, 0) + 1
-                    majority_color = max(color_counts, key=color_counts.get)
-                    majority_count = color_counts[majority_color]
-
-                    if majority_count >= len(self.right_color_history) * 0.6:
-                        logger.debug(f"Right color (history majority): {majority_color}")
-                        return majority_color
+                
 
                 logger.debug(f"Right color detection uncertain: {color_match} (confidence: {confidence:.2f})")
                 return None

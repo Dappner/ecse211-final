@@ -467,6 +467,9 @@ class SensorSystem:
         if not self.has_ultrasonic:
             logger.warning("Ultrasonic sensor not available")
             return None
+        
+        # flush previous distance readings
+        self.distance_history.clear()
 
         # Take multiple readings
         readings = []
